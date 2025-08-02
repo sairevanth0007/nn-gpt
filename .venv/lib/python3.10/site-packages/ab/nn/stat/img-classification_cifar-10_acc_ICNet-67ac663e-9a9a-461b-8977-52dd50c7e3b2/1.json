@@ -1,0 +1,11 @@
+[
+    {
+        "accuracy": 0.198,
+        "batch": 32,
+        "duration": 29421943557,
+        "lr": 0.06768329980596309,
+        "momentum": 0.067171558161215,
+        "transform": "echo_299_flip",
+        "uid": "1f90ece71db8ff56c283a86d890df952"
+    }
+]
