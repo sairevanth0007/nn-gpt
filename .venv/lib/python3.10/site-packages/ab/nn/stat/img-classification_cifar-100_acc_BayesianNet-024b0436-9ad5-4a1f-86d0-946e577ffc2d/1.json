@@ -1,0 +1,12 @@
+[
+    {
+        "accuracy": 0.101,
+        "batch": 64,
+        "duration": 5376710482,
+        "kernel_size": 0.19661318963535757,
+        "lr": 0.16225256252505957,
+        "momentum": 0.16311988434797453,
+        "transform": "echo",
+        "uid": "49f3ebd84e0a06110a47f9f37fab5b8d"
+    }
+]
