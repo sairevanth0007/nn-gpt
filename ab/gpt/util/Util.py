@@ -206,6 +206,18 @@ def extract_hyperparam(txt):
                               (('<hp>', '</hp>'), ('```json', '```')))
 
 
+_NN_MODULE_CLASS = re.compile(r'class\s+\w+\s*\([^)]*nn\.Module[^)]*\)')
+
+
+def is_nn_model_code(s) -> bool:
+    """True when a string looks like a full NN model rather than a transform:
+    it defines a `class Net` (or any nn.Module subclass) and has a `def forward`.
+    Used to detect NN code misrouted into the <tr> transform slot."""
+    if not isinstance(s, str) or 'def forward' not in s:
+        return False
+    return 'class Net' in s or bool(_NN_MODULE_CLASS.search(s))
+
+
 def extract_transform(txt):
     return extract_by_pattern('transform code', txt.replace('< tr >', '<tr>').replace('<.tr>', '<tr>').replace('</ tr >', '</tr>'),
                               (('<tr>', '</tr>'),))

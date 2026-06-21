@@ -40,6 +40,7 @@ from ab.gpt.util.Util import (
     extract_code,
     extract_hyperparam,
     extract_transform,
+    is_nn_model_code,
 )
 from ab.gpt.util.prompt.NNGenPrompt import NNGenPrompt
 from ab.gpt.util.DeltaUtil import apply_delta, validate_delta, repair_code
@@ -278,6 +279,21 @@ def nn_gen(
 
             hp_str = extract_hyperparam(full_out)
             tr_str = extract_transform(full_out)
+
+            # Guard against NN-model code misrouted into the <tr> transform slot.
+            # The reference model in the prompt is shown in <tr>/<nn> tags and the
+            # LLM sometimes emits its full model inside <tr> (or echoes the
+            # reference), which extract_transform would otherwise save as tr.py and
+            # the model would never be evaluated. If the transform slot holds a
+            # full NN model, promote it to new_nn.py when we have no NN code yet,
+            # and never persist a model as a transform.
+            if tr_str and is_nn_model_code(tr_str):
+                print('[ROUTING] <tr> transform slot contains a full NN model.')
+                if not (code and code.strip()):
+                    repaired = repair_code(tr_str)
+                    code = repaired or tr_str
+                    print(f'[ROUTING] Promoted misrouted NN model from <tr> to new_nn.py for B{idx}')
+                tr_str = None
 
             try:
                 print(f'Generated params: {hp_str}')
