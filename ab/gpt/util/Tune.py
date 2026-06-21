@@ -124,6 +124,11 @@ def nn_gen(
 
         num_joint_nns = key_config.get("num_joint_nns", 1)
         use_join = num_joint_nns >= 2
+        # Pin generation seeds to cifar-10 ga- models so the LLM is conditioned on
+        # the intended corpus. Configurable via the prompt-config JSON, defaults
+        # to the cifar-10 / ga- corpus when unspecified.
+        gen_dataset = key_config.get("dataset", "cifar-10")
+        gen_nn_prefixes = tuple(key_config.get("nn_prefixes") or ("ga-",))
         if use_join:
             from ab.nn.util.db.Query import JoinConf
             from ab.gpt.util.lemur_enrichment import patch_join_nn_query, enrich_dataframe
@@ -131,6 +136,8 @@ def nn_gen(
             data = lemur.data(
                 only_best_accuracy=True,
                 task=key_config["task"],
+                dataset=gen_dataset,
+                nn_prefixes=gen_nn_prefixes,
                 sql=JoinConf(
                     num_joint_nns=num_joint_nns,
                     same_columns=tuple(key_config.get("keep_same", [])),
@@ -143,7 +150,8 @@ def nn_gen(
             addon_data = None
         else:
             data = (
-                lemur.data(only_best_accuracy=True, task=key_config["task"])
+                lemur.data(only_best_accuracy=True, task=key_config["task"],
+                           dataset=gen_dataset, nn_prefixes=gen_nn_prefixes)
                 .groupby(by="nn")
                 .sample(n=1)[:test_nn]
             )

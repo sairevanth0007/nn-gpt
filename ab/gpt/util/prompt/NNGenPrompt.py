@@ -78,7 +78,8 @@ class NNGenPrompt(Prompt):
                 data = lemur.data(
                     only_best_accuracy=only_best_accuracy,
                     task=key_dict.get('task'),
-                    nn_prefixes=tuple(key_dict.get('nn_prefixes') or []),
+                    dataset=key_dict.get('dataset', 'cifar-10'),
+                    nn_prefixes=tuple(key_dict.get('nn_prefixes') or ('ga-',)),
                     max_rows=n_training_prompts,
                     sql=None if not use_join else JoinConf(
                         num_joint_nns=num_joint_nns,
