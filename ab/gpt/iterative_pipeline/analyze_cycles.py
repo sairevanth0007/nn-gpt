@@ -406,8 +406,9 @@ def analyze_cycles(results: List[Dict[str, Any]], results_dir: Path = out_dir / 
 
 def save_analysis(analysis: Dict[str, Any], output_dir: Path = out_dir / 'iterative_cycles'):
     """Save analysis to JSON and CSV files."""
-    output_dir.mkdir(parents=True, exist_ok=True)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
     
+    output_dir = Path(output_dir)
     # Save JSON
     json_path = output_dir / "cycle_analysis.json"
     with open(json_path, "w") as f:

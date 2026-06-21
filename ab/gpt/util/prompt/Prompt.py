@@ -11,7 +11,8 @@ def preprocess_batch(batch, tokenizer, max_length):
     """
     result = tokenizer(
         batch['text'],
-        truncation=False
+        truncation=True,
+        max_length=4096,
     )
     # Also tokenize response to check its length
     if 'response' in batch:

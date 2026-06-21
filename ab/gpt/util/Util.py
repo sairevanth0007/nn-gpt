@@ -71,12 +71,8 @@ def read_py_file_as_string(file_path):
         str: Content of the file.
     """
     try:
-        spec = importlib.util.spec_from_file_location("module_name", file_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
-        source_code = inspect.getsource(module)
-        return source_code
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
     except Exception as e:
         print(f"error when reading file: {e}")
         return None

@@ -195,6 +195,36 @@ def main(num_train_epochs=NUM_TRAIN_EPOCHS, lr_scheduler=LR_SCHEDULER, max_grad_
         except ImportError:
             print("[WARN] Unsloth requested but not installed. Falling back to standard PEFT.")
 
+    # Guard against broken flash_attn binary in the K8s image
+    import sys, types
+    try:
+        from flash_attn import flash_attn_func
+    except (ImportError, OSError):
+        import importlib.machinery
+        _fa = types.ModuleType("flash_attn")
+        _fa.__spec__ = importlib.machinery.ModuleSpec("flash_attn", None)
+        _fa.__version__ = "0.0.0"
+        _fa.flash_attn_func = None
+        _fa.flash_attn_varlen_func = None
+        _fa.flash_attn_with_kvcache = None
+        sys.modules["flash_attn"] = _fa
+        _bp = types.ModuleType("flash_attn.bert_padding")
+        _bp.index_first_axis = lambda x, i: x[i]
+        _bp.pad_input = lambda *a, **k: None
+        _bp.unpad_input = lambda *a, **k: (None, None, None, None)
+        sys.modules["flash_attn.bert_padding"] = _bp
+        sys.modules["flash_attn.layers"] = types.ModuleType("flash_attn.layers")
+        _rot = types.ModuleType("flash_attn.layers.rotary")
+        _rot.apply_rotary_emb = lambda *a, **k: a[0]
+        sys.modules["flash_attn.layers.rotary"] = _rot
+
+    # Guard against torchvision::nms operator mismatch (torch version in user site
+    # doesn't match torchvision in venv)
+    try:
+        import torchvision
+    except (ImportError, RuntimeError):
+        pass  # torchvision not needed for fine-tuning, ignore if broken
+
     from peft import LoraConfig
     from transformers import TrainingArguments
 
