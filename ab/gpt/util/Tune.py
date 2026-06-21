@@ -623,6 +623,16 @@ def _evaluate_epoch(epoch, out_path, nn_name_prefix, nn_train_epochs, trans_mode
     results = {"epoch": epoch}
 
     if exists(models_dir):
+        # Repair generated models that almost follow the LEMUR interface (class
+        # rename to Net, in_shape unpack, F import, learn method, hyperparam strip)
+        # before evaluation so near-miss candidates are not lost.
+        if not trans_mode:
+            try:
+                from ab.gpt.util.PostprocessNN import postprocess_directory
+                postprocess_directory(models_dir)
+            except Exception as exc:
+                print(f'[WARN] postprocess_nn skipped: {exc}', flush=True)
+
         if classification_mode:
             from ab.gpt.ClassificationEval import evaluate_epoch as cls_eval
 
