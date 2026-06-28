@@ -322,6 +322,16 @@ def _collect_epoch_requests(
     immediate_results: List[Dict[str, Any]] = []
     base_nngpt_path = nngpt_dir
 
+    def _display_model_path(path: Path) -> Path:
+        """
+        Return a stable display path for logs without assuming the model path
+        is always inside out/nngpt (mobile iterative flow uses curation_output).
+        """
+        try:
+            return path.relative_to(base_nngpt_path)
+        except ValueError:
+            return path
+
     for model_id in sorted(os.listdir(models_base_dir)):
         model_dir_path = models_base_dir / model_id
         if not model_dir_path.is_dir():
@@ -337,13 +347,13 @@ def _collect_epoch_requests(
         existing_result = _load_existing_success_result(model_dir_path)
         if existing_result is not None:
             print(
-                f"  [SKIP] {model_dir_path.relative_to(base_nngpt_path)} already evaluated "
+                f"  [SKIP] {_display_model_path(model_dir_path)} already evaluated "
                 f"({existing_result['accuracy'] * 100:.2f}%)"
             )
             immediate_results.append(existing_result)
             continue
 
-        print(f"\n--- Evaluating Model: {model_dir_path.relative_to(base_nngpt_path)} ---")
+        print(f"\n--- Evaluating Model: {_display_model_path(model_dir_path)} ---")
         if not verify_nn_code(model_dir_path, code_file_path):
             print(f"Code verification failed for {code_file_path}. Skipping evaluation.")
             (model_dir_path / "eval_verification_failed.txt").write_text(
@@ -500,8 +510,11 @@ def main(
     use_all_visible_gpus: Optional[bool] = None,
 ):
     base_nngpt_path = nngpt_dir
+    custom_synth_path = Path(custom_synth_dir) if custom_synth_dir else None
     if nn_alter_epochs is None:
-        if epoch_dir().is_dir():
+        if custom_synth_path is not None:
+            nn_alter_epochs = 1
+        elif epoch_dir().is_dir():
             nn_alter_epochs = len(os.listdir(epoch_dir()))
         else:
             print(f"Directory {epoch_dir()} doesn't exist", file=sys.stderr)
@@ -520,10 +533,14 @@ def main(
                 current_epoch = i
                 cycle_start_time = time.time()
                 # Path to one NNAlter epoch output, e.g. out/nngpt/llm/epoch/A0.
-                current_alter_epoch_path = epoch_dir(i)
-                # Allow callers to point directly at a synth dir instead of
-                # deriving it from epoch_dir().
-                models_base_dir = Path(custom_synth_dir) if custom_synth_dir else synth_dir(current_alter_epoch_path)
+                # If a caller passes a synth dir directly, do not infer anything
+                # from the default epoch root.
+                if custom_synth_path is not None:
+                    models_base_dir = custom_synth_path
+                    current_alter_epoch_path = custom_synth_path.parent
+                else:
+                    current_alter_epoch_path = epoch_dir(i)
+                    models_base_dir = synth_dir(current_alter_epoch_path)
 
                 if not models_base_dir.exists():
                     print(f"Directory {models_base_dir} for NNAlter epoch {i} not found. Skipping.")

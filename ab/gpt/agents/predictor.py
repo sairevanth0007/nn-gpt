@@ -16,7 +16,7 @@ def predictor_node(state: AgentState) -> Dict[str, Any]:
     print("[PREDICTOR] Running...")
 
     try:
-        from ab.gpt.util.AccPredictor import predict_best_accuracy
+        from ab.gpt.AccPredictor import predict_best_accuracy
 
         nn_code     = state.get("nn_code")
         epoch_1_acc = state.get("epoch_1_accuracy")

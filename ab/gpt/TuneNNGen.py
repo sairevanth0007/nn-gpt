@@ -158,14 +158,17 @@ def main(num_train_epochs=NUM_TRAIN_EPOCHS, lr_scheduler=LR_SCHEDULER, max_grad_
          min_selected_k=15, fallback_threshold=0.35, adaptive_threshold=False,
          novelty_check=True, resume_from_cycle=None, max_retries=3, use_optimized_training=True,
          use_agents=USE_AGENTS, use_predictor=USE_PREDICTOR, use_backbone=False,
-         classification_mode=False):
+         classification_mode=False, mobile_deployment=False):
 
     persist_llm_conf(llm_conf, enable_merge)
 
     if run_iterative_pipeline:
         print("--- Initiating Iterative Fine-Tuning Pipeline ---")
         try:
-            from ab.gpt.iterative_finetune import IterativeFinetuner
+            if mobile_deployment:
+                from ab.gpt.mobile_iterative_finetune import MobileDeploymentFinetuner as IterativeFinetuner
+            else:
+                from ab.gpt.iterative_finetune import IterativeFinetuner
         except ImportError as e:
             print(f"[ERROR] Pipeline mode requires ab.gpt.iterative_finetune: {e}")
             sys.exit(1)
@@ -591,11 +594,13 @@ if __name__ == '__main__':
     parser.add_argument('--use_agents', action='store_true', default=USE_AGENTS,
                         help='Enable LangGraph multi-agent workflow (default: False).')
     parser.add_argument('--use_predictor', action='store_true', default=USE_PREDICTOR,
-                        help='Enable predictor agent (requires --use_agents) (default: False).')
+                        help='Enable predictor agent.')
     parser.add_argument('--use_backbone', action='store_true', default=False,
                         help='Use backbone mode for code generation (default: False).')
     parser.add_argument('--classification_mode', action='store_true', default=False,
                         help='Enable classification-only mode (default: False).')
+    parser.add_argument('--mobile_deployment', action='store_true', default=False,
+                        help='Enable standalone mobile deployment pipeline extensions (default: False).')
 
     args = parser.parse_args()
 

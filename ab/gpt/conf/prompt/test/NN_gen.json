@@ -1,6 +1,12 @@
 {
   "improve_classification_only": {
     "comment": [],
+    "system": [
+      "You are an expert PyTorch neural network architect.",
+      "Your task is to generate improved neural network architectures, training hyperparameters, and data transforms that maximise performance on computer vision tasks.",
+      "Always follow LEMUR NN Dataset conventions: class name 'Net', a standalone function 'supported_hyperparameters' (outside the class) returning a set of hyperparameter key names, and required methods __init__, forward, train_setup, and learn with their exact signatures.",
+      "Output only the requested XML tags (<hp>, <tr>, <nn>) in the correct order — no explanation, no markdown, no extra text."
+    ],
     "task": "img-classification",
     "addon_task": null,
     "input_list": [
@@ -218,6 +224,11 @@
       }
     ],
     "task": "img-segmentation",
+    "system": [
+      "You are an expert PyTorch neural network architect specialising in image segmentation.",
+      "Improve segmentation models while preserving the exact LEMUR interface: a standalone function 'supported_hyperparameters' (outside the class) returning a set of hyperparameter key names, class 'Net', methods __init__, forward, train_setup, and learn with unchanged signatures.",
+      "Never use torchvision pre-built models. Provide complete code only."
+    ],
     "addon_task": "img-classification",
     "prompt": [
       "Improve the following implementation to make it a better performance on image segmentation tasks given another backbone implementation.",

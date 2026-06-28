@@ -76,7 +76,8 @@ def apply_sliding_window(example, max_length, stride, tokenizer):
                 chunk_input_ids += [tokenizer.pad_token_id] * pad_len
                 chunk_attention_mask += [0] * pad_len
 
-            chunks.append({"input_ids": chunk_input_ids, "attention_mask": chunk_attention_mask})
+            chunks.append({"input_ids": chunk_input_ids,
+                          "attention_mask": chunk_attention_mask})
     return {"chunks": chunks}
 
 
@@ -106,20 +107,25 @@ def nn_gen(
     unsloth_max_input_length,
     prompt_batch,
     use_backbone=False,
+    sft_nn_prefixes=None,
+    sft_dataset=None,
 ):
     print("Preparing prompts for generation, this might take a while...")
 
     use_delta = nn_name_prefix == "delta"
     if not use_delta and isinstance(prompt_dict, dict) and conf_keys:
-        first_key = conf_keys[0] if isinstance(conf_keys, (list, tuple)) else conf_keys
+        first_key = conf_keys[0] if isinstance(
+            conf_keys, (list, tuple)) else conf_keys
         key_config = prompt_dict.get(first_key, {})
         if isinstance(key_config, dict):
-            use_delta = key_config.get("use_delta", False) or "delta" in str(first_key).lower()
+            use_delta = key_config.get(
+                "use_delta", False) or "delta" in str(first_key).lower()
 
     prompts = []
     for key in conf_keys:
-        prompt = ""
         key_config = prompt_dict[key]
+        system_text = "\n".join(key_config.get("system", []))
+        prompt = ""
         for pr in key_config["prompt"]:
             prompt += pr + "\n"
 
@@ -150,14 +156,26 @@ def nn_gen(
                 enrich_dataframe(data)
             addon_data = None
         else:
+            data_kwargs = {"only_best_accuracy": True, "task": key_config["task"]}
+            if use_backbone and sft_nn_prefixes:
+                data_kwargs["nn_prefixes"] = sft_nn_prefixes
+            if use_backbone and sft_dataset:
+                data_kwargs["dataset"] = sft_dataset
             data = (
                 lemur.data(only_best_accuracy=True, task=key_config["task"],
                            dataset=gen_dataset, nn_prefixes=gen_nn_prefixes)
                 .groupby(by="nn")
                 .sample(n=1)[:test_nn]
             )
+            if use_backbone:
+                datasets = sorted(data["dataset"].dropna().unique().tolist()) if "dataset" in data else []
+                print(
+                    f"[TUNE] Backbone generation seed rows={len(data)} "
+                    f"datasets={datasets} nn_prefixes={sft_nn_prefixes} sft_dataset={sft_dataset}"
+                )
             addon_task = key_config.get("addon_task")
-            addon_data = lemur.data(only_best_accuracy=True, task=addon_task) if addon_task else None
+            addon_data = lemur.data(
+                only_best_accuracy=True, task=addon_task) if addon_task else None
 
         output_type = key_config.get("output_type", "code")
         nn_code_max_chars = key_config.get("nn_code_max_chars")
@@ -182,14 +200,16 @@ def nn_gen(
                         for it in key_config["addon_list"]:
                             para_dict[it["para"]] = addon_row[it["value"]]
 
-            prompts.append((prompt.format(**para_dict), row, output_type))
+            prompts.append((system_text, prompt.format(
+                **para_dict), row, output_type))
 
     models_dir = synth_dir(out_path)
 
     if use_delta:
         for idx, prompt_data in tqdm(enumerate(prompts)):
             model_dir = models_dir / f"B{idx}"
-            prompt_text, origdf, output_type = prompt_data
+            system_text, prompt_text, origdf, output_type = prompt_data
+            chat_bot.system_prompt = system_text or None
 
             seed = epoch * 10000 + idx
             torch.manual_seed(seed)
@@ -199,16 +219,20 @@ def nn_gen(
                 torch.cuda.manual_seed_all(seed)
 
             if unsloth_max_input_length:
-                in_text = [{"role": "user", "content": prompt_text}]
-                token_len = len(chat_bot.tokenizer.apply_chat_template(in_text, add_generation_prompt=True))
-                print(f'Sample prompt length: {token_len}, max_input_length: {unsloth_max_input_length}')
+                in_text = chat_bot._build_messages(prompt_text)
+                token_len = len(chat_bot.tokenizer.apply_chat_template(
+                    in_text, add_generation_prompt=True))
+                print(
+                    f'Sample prompt length: {token_len}, max_input_length: {unsloth_max_input_length}')
                 if token_len > unsloth_max_input_length:
                     print(f'Prompt is too long, skipping...')
                     continue
 
-            baseline_code = origdf.get('nn_code', '') if origdf is not None else ''
+            baseline_code = origdf.get(
+                'nn_code', '') if origdf is not None else ''
 
-            _, hp, tr, full_out = chat_bot.chat(prompt_text, engineer_prompt=False, max_new_tokens=max_new_tokens)
+            _, hp, tr, full_out = chat_bot.chat(
+                prompt_text, engineer_prompt=False, max_new_tokens=max_new_tokens)
 
             if use_backbone:
                 from ab.gpt.util.SFTUtil import skeleton_code
@@ -222,15 +246,16 @@ def nn_gen(
                     sig_block = "def drop_conv3x3_block(in_channels, out_channels, stride=1, padding=1, bias=False, dropout_prob=0.0):"
                     code = code.replace(sig_block, textwrap.dedent(block_code))
                     sig_init = "    def __init__(self, in_shape: tuple, out_shape: tuple, prm: dict, device: torch.device) -> None:"
-                    code = code.replace(sig_init, textwrap.indent(textwrap.dedent(init_code), "    "))
+                    code = code.replace(sig_init, textwrap.indent(
+                        textwrap.dedent(init_code), "    "))
                     sig_forward = "    def forward(self, x: torch.Tensor, is_probing: bool = False) -> torch.Tensor:"
-                    code = code.replace(sig_forward, textwrap.indent(textwrap.dedent(forward_code), "    "))
+                    code = code.replace(sig_forward, textwrap.indent(
+                        textwrap.dedent(forward_code), "    "))
                 else:
                     code = extract_code(full_out)
                 if code is None:
                     print(f'[ERROR] No code generated for model B{idx}')
                     continue  # Skip if no code is generated at all
-
 
             makedirs(model_dir, exist_ok=True)
             if save_llm_output:
@@ -252,16 +277,19 @@ def nn_gen(
                 elif not validate_delta(delta):
                     error_msg = 'Delta format is invalid (must be unified diff with --- / +++ headers and @@ hunks).'
                 else:
-                    applied = apply_delta(baseline_code, delta) if baseline_code else None
+                    applied = apply_delta(
+                        baseline_code, delta) if baseline_code else None
                     if applied:
                         code = applied
-                        print(f'[INFO] Applied delta for B{idx} (attempt {attempt + 1})')
+                        print(
+                            f'[INFO] Applied delta for B{idx} (attempt {attempt + 1})')
                         break
                     else:
                         error_msg = 'Delta patch failed to apply to the baseline code.'
 
                 if attempt < _MAX_DELTA_RETRIES:
-                    print(f'[WARNING] Delta attempt {attempt + 1} failed for B{idx}: {error_msg} Retrying with feedback...')
+                    print(
+                        f'[WARNING] Delta attempt {attempt + 1} failed for B{idx}: {error_msg} Retrying with feedback...')
                     current_prompt = (
                         prompt_text
                         + f'\n\n[SYSTEM FEEDBACK - Attempt {attempt + 1} failed]: {error_msg}'
@@ -269,13 +297,15 @@ def nn_gen(
                     )
 
             if code is None:
-                print(f'[WARNING] All delta attempts failed for B{idx}. Trying syntax repair on extracted code.')
+                print(
+                    f'[WARNING] All delta attempts failed for B{idx}. Trying syntax repair on extracted code.')
                 raw_code = extract_code(full_out)
                 if raw_code:
                     repaired = repair_code(raw_code)
                     if repaired:
                         code = repaired
-                        print(f'[INFO] Used syntax-repaired code fallback for B{idx}')
+                        print(
+                            f'[INFO] Used syntax-repaired code fallback for B{idx}')
 
             hp_str = extract_hyperparam(full_out)
             tr_str = extract_transform(full_out)
@@ -329,39 +359,48 @@ def nn_gen(
                     os.remove(df_file)
                     print(f'[DEBUG]Removed unmatched file: {df_file}')
             else:
-                create_file(model_dir, f"original_{origdf['nn']}.py", origdf['nn_code'])
+                create_file(
+                    model_dir, f"original_{origdf['nn']}.py", origdf['nn_code'])
                 origdf.to_pickle(df_file)
 
     else:
         pending = []
         for idx, prompt_data in tqdm(enumerate(prompts)):
-            prompt_text, origdf, output_type = prompt_data
+            system_text, prompt_text, origdf, output_type = prompt_data
+            chat_bot.system_prompt = system_text or None
 
             if unsloth_max_input_length:
-                in_text = [{"role": "user", "content": prompt_text}]
-                output = chat_bot.tokenizer.apply_chat_template(in_text, add_generation_prompt=True)
-                print(f'Sample prompt length: {len(output)}, max_input_length: {unsloth_max_input_length}')
+                in_text = chat_bot._build_messages(prompt_text)
+                output = chat_bot.tokenizer.apply_chat_template(
+                    in_text, add_generation_prompt=True)
+                print(
+                    f'Sample prompt length: {len(output)}, max_input_length: {unsloth_max_input_length}')
                 if len(output) > unsloth_max_input_length:
                     print(f'Prompt is too long, skipping...')
                     continue
 
-            pending.append((idx, prompt_text, origdf, output_type))
+            pending.append(
+                (idx, system_text, prompt_text, origdf, output_type))
 
         if prompt_batch < 1:
             prompt_batch = 1
         if prompt_batch > 1:
-            print(f'[INFO] Batch generation enabled: prompt_batch={prompt_batch}')
+            print(
+                f'[INFO] Batch generation enabled: prompt_batch={prompt_batch}')
 
         for start in range(0, len(pending), prompt_batch):
-            batch = pending[start : start + prompt_batch]
-            batch_prompts = [item[1] for item in batch]
+            batch = pending[start: start + prompt_batch]
+            chat_bot.system_prompt = batch[0][1] or None
+            batch_prompts = [item[2] for item in batch]
 
             if prompt_batch > 1 and hasattr(chat_bot, 'chat_batch'):
-                batch_outputs = chat_bot.chat_batch(batch_prompts, engineer_prompt=False, max_new_tokens=max_new_tokens)
+                batch_outputs = chat_bot.chat_batch(
+                    batch_prompts, engineer_prompt=False, max_new_tokens=max_new_tokens)
             else:
-                batch_outputs = [chat_bot.chat(p, engineer_prompt=False, max_new_tokens=max_new_tokens) for p in batch_prompts]
+                batch_outputs = [chat_bot.chat(
+                    p, engineer_prompt=False, max_new_tokens=max_new_tokens) for p in batch_prompts]
 
-            for (idx, prompt_text, origdf, output_type), output in zip(batch, batch_outputs):
+            for (idx, system_text, prompt_text, origdf, output_type), output in zip(batch, batch_outputs):
                 model_dir = models_dir / f"B{idx}"
                 code, hp, tr, full_out = output
                 if use_backbone:
@@ -385,7 +424,8 @@ def nn_gen(
                         with open(model_dir / hp_file, 'w+') as f:
                             json.dump(hp, f)
                     else:
-                        print('[WARNING] No hyperparameters generated, skipping hp file')
+                        print(
+                            '[WARNING] No hyperparameters generated, skipping hp file')
                 except Exception as e:
                     print(f'[WARNING] Error processing hyperparameters: {e}')
 
@@ -412,7 +452,8 @@ def nn_gen(
                         os.remove(df_file)
                         print(f'[DEBUG]Removed unmatched file: {df_file}')
                 else:
-                    create_file(model_dir, f"original_{origdf['nn']}.py", origdf['nn_code'])
+                    create_file(
+                        model_dir, f"original_{origdf['nn']}.py", origdf['nn_code'])
                     origdf.to_pickle(df_file)
 
     # Track generation-side progress even before later merge logic or external
@@ -465,7 +506,8 @@ def trans_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs, prompt_dict
 
     prompts = []
 
-    all_data = load_data_from_folders(out_gen_dir, result_gen_dir, only_best_accuracy=True)
+    all_data = load_data_from_folders(
+        out_gen_dir, result_gen_dir, only_best_accuracy=True)
     if len(all_data) == 0:
         print("Warning: No data loaded from folders for generation. Skipping.", flush=True)
         return
@@ -477,7 +519,8 @@ def trans_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs, prompt_dict
             prompt += pr + '\n'
 
         if len(all_data) < test_nn:
-            print(f"Warning: Requested {test_nn} samples, but only {len(all_data)} available. Using all.", flush=True)
+            print(
+                f"Warning: Requested {test_nn} samples, but only {len(all_data)} available. Using all.", flush=True)
             data_sample = all_data.sample(n=len(all_data))
         else:
             data_sample = all_data.sample(n=test_nn)
@@ -491,7 +534,8 @@ def trans_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs, prompt_dict
                 para_dict[it['para']] = row_dict.get(it['value'])
 
             # Avoid sampling the same transform
-            filtered_addon_data = addon_data.loc[addon_data.id_name != row['id_name']]
+            filtered_addon_data = addon_data.loc[addon_data.id_name !=
+                                                 row['id_name']]
             if len(filtered_addon_data) > 0:
                 addon_row = filtered_addon_data.sample(n=1).iloc[0].to_dict()
                 if prompt_config.get('addon_list'):
@@ -499,7 +543,8 @@ def trans_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs, prompt_dict
                         para_dict[it['para']] = addon_row.get(it['value'])
                 prompts.append((prompt.format(**para_dict), row))
             else:
-                print(f"Warning: Could not find addon data for {row['id_name']}. Skipping prompt.", flush=True)
+                print(
+                    f"Warning: Could not find addon data for {row['id_name']}. Skipping prompt.", flush=True)
 
     models_dir = synth_dir(out_path)
 
@@ -507,7 +552,8 @@ def trans_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs, prompt_dict
         model_dir = models_dir / f'B{idx}'
         prompt_text, origdf = prompt_data
 
-        code, hp, tr, full_out = chat_bot.chat(prompt_text, engineer_prompt=False, max_new_tokens=max_new_tokens)
+        code, hp, tr, full_out = chat_bot.chat(
+            prompt_text, engineer_prompt=False, max_new_tokens=max_new_tokens)
 
         makedirs(model_dir, exist_ok=True)
         if save_llm_output:
@@ -525,7 +571,8 @@ def trans_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs, prompt_dict
             if isfile(df_file):
                 os.remove(df_file)
         else:
-            create_file(model_dir, f"original_{origdf['id_name']}.py", origdf['transform_code'])
+            create_file(
+                model_dir, f"original_{origdf['id_name']}.py", origdf['transform_code'])
             origdf.to_pickle(df_file)
 
     print('[DEBUG] Release memory.')
@@ -599,20 +646,32 @@ def generate_step(state: AgentState) -> dict:
             state.get("unsloth_max_input_length"),
             state.get("prompt_batch", 1),
             use_backbone=state.get("use_backbone",False),
+            sft_nn_prefixes=state.get("sft_nn_prefixes"),
+            sft_dataset=state.get("sft_dataset"),
         )
 
     # Classification prompts may intentionally emit labels or structured output
     # without generating a runnable new_nn.py file.
     classification_mode = state.get("classification_mode", False)
-    has_output = _has_generated_output(out_path) if classification_mode else _has_generated_nn_code(out_path)
+    has_output = _has_generated_output(
+        out_path) if classification_mode else _has_generated_nn_code(out_path)
     if not has_output:
-        print(f"[INFO] No code generated at epoch {epoch}, skipping evaluation")
+        print(
+            f"[INFO] No code generated at epoch {epoch}, skipping evaluation")
         return {"next_action": "finetune"}
 
     return {"next_action": "evaluate"}
 
 
-def _evaluate_epoch(epoch, out_path, nn_name_prefix, nn_train_epochs, trans_mode, classification_mode=False):
+def _evaluate_epoch(
+    epoch,
+    out_path,
+    nn_name_prefix,
+    nn_train_epochs,
+    trans_mode,
+    classification_mode=False,
+    custom_synth_dir=None,
+):
     """
     Single source of truth for one evaluation epoch.
     Runs NNEval (trains generated NNs for nn_train_epochs and records accuracy).
@@ -646,13 +705,50 @@ def _evaluate_epoch(epoch, out_path, nn_name_prefix, nn_train_epochs, trans_mode
                 print(f"Error running evaluation main(): {e}", flush=True)
             print('Folder data reload will occur next epoch.')
         else:
-            NNEval.main(
-                nn_name_prefix=nn_name_prefix,
-                nn_train_epochs=nn_train_epochs,
-                only_epoch=epoch,
-            )
+            eval_cuda_visible_devices = os.getenv("CUDA_VISIBLE_DEVICES", "").strip()
+            if eval_cuda_visible_devices:
+                env = os.environ.copy()
+                env["CUDA_VISIBLE_DEVICES"] = eval_cuda_visible_devices
+                env["NNGPT_NNEVAL_USE_ALL_VISIBLE_GPUS"] = "1"
+                env.pop("NNGPT_NNEVAL_GPU_TOKENS", None)
+                cmd = [
+                    sys.executable,
+                    "-m",
+                    "ab.gpt.NNEval",
+                    "--nn_train_epochs",
+                    str(nn_train_epochs),
+                    "--only_epoch",
+                    str(epoch),
+                ]
+                if custom_synth_dir:
+                    cmd.extend(["--custom_synth_dir", str(custom_synth_dir)])
+                if nn_name_prefix:
+                    cmd.extend(["--nn_name_prefix", str(nn_name_prefix)])
+                print(
+                    f"[TUNE] Running NNEval subprocess with "
+                    f"CUDA_VISIBLE_DEVICES={eval_cuda_visible_devices} "
+                    f"custom_synth_dir={custom_synth_dir or ''}"
+                )
+                subprocess.run(cmd, check=True, env=env)
+            else:
+                NNEval.main(
+                    nn_name_prefix=nn_name_prefix,
+                    nn_train_epochs=nn_train_epochs,
+                    only_epoch=epoch,
+                    custom_synth_dir=custom_synth_dir,
+                )
             print('[DEBUG] Release_memory.')
             release_memory()
+
+            generated_count = len(glob.glob(str(models_dir / "B*" / new_nn_file)))
+            artifact_count = len(glob.glob(str(models_dir / "B*" / "eval_info.json")))
+            artifact_count += len(glob.glob(str(models_dir / "B*" / "error.txt")))
+            if generated_count > 0 and artifact_count == 0:
+                raise RuntimeError(
+                    "NNEval produced no per-model artifacts after generated code was found: "
+                    f"models_dir={models_dir}, generated={generated_count}. "
+                    "Check custom_synth_dir and epoch_root settings."
+                )
 
         print('Clear LEMUR query cache.')
         lemur.data.cache_clear()
@@ -679,22 +775,22 @@ def _evaluate_epoch(epoch, out_path, nn_name_prefix, nn_train_epochs, trans_mode
     if exists(models_dir):
         for bdir in sorted(glob.glob(str(models_dir / "B*"))):
             eval_info_path = os.path.join(bdir, "eval_info.json")
-            df_path        = os.path.join(bdir, "dataframe.df")
-            nn_path        = os.path.join(bdir, new_nn_file)
-            tr_path        = os.path.join(bdir, transformer_file)
+            df_path = os.path.join(bdir, "dataframe.df")
+            nn_path = os.path.join(bdir, new_nn_file)
+            tr_path = os.path.join(bdir, transformer_file)
 
             if not isfile(eval_info_path):
                 continue
             try:
                 with open(eval_info_path) as f:
                     eval_info = json.load(f)
-                cli  = eval_info.get("cli_args", {})
+                cli = eval_info.get("cli_args", {})
                 args = eval_info.get("eval_args", {})
                 # use exact DB column names so predictor can use them directly
-                results["task"]           = cli.get("task", "")
-                results["dataset"]        = cli.get("dataset", "")
-                results["metric"]         = cli.get("metric", "")
-                results["prm"]            = args if args else {}
+                results["task"] = cli.get("task", "")
+                results["dataset"] = cli.get("dataset", "")
+                results["metric"] = cli.get("metric", "")
+                results["prm"] = args if args else {}
                 if isfile(nn_path):
                     with open(nn_path) as f:
                         results["nn_code"] = f.read()
@@ -706,7 +802,8 @@ def _evaluate_epoch(epoch, out_path, nn_name_prefix, nn_train_epochs, trans_mode
                     try:
                         origdf = pd.read_pickle(df_path)
                         if not results.get("transform_code"):
-                            results["transform_code"] = origdf.get("transform_code", "")
+                            results["transform_code"] = origdf.get(
+                                "transform_code", "")
                         if not results.get("task"):
                             results["task"] = origdf.get("task", "")
                         if not results.get("dataset"):
@@ -785,6 +882,7 @@ def _finetune_epoch(
     resume_trainer_checkpoint=None,
     use_backbone=False,
     sft_nn_prefixes=None,
+    sft_dataset=None,
 ):
     """
     Single source of truth for one finetune epoch.
@@ -805,6 +903,7 @@ def _finetune_epoch(
             context_length if context_length else model_loader.get_max_length(),
             tokenizer,
             nn_prefixes=sft_nn_prefixes,
+            dataset=sft_dataset,
         )
     else:
         length = (
@@ -826,6 +925,7 @@ def _finetune_epoch(
         dataset,
         tokenizer,
         out_path / base_model_name,
+        train_on_completions_only=use_backbone,
         resume_from_checkpoint=resume_trainer_checkpoint,
         checkpoint_label="trainer",
     )
@@ -833,7 +933,8 @@ def _finetune_epoch(
     del dataset
     release_memory()
 
-    chat_bot = ChatBot(model, tokenizer, temperature=temperature, top_k=top_k, top_p=top_p)
+    chat_bot = ChatBot(
+        model, tokenizer, temperature=temperature, top_k=top_k, top_p=top_p)
     return model, chat_bot
 
 
@@ -851,10 +952,12 @@ def finetune_step(state: AgentState) -> dict:
         state["train_config_path"], state["only_best_accuracy"],
         state.get("max_prompts"), state["max_new_tokens"],
         state["base_model_name"], state.get("trans_mode", False),
-        state.get("temperature", 1.0), state.get("top_k", 50), state.get("top_p", 0.9),
+        state.get("temperature", 1.0), state.get(
+            "top_k", 50), state.get("top_p", 0.9),
         state.get("trainer_resume_checkpoint"),
         state.get("use_backbone", False),
         state.get("sft_nn_prefixes"),
+        state.get("sft_dataset"),
     )
 
     return {
@@ -881,6 +984,7 @@ def _resolve_tune_resume_trainer_checkpoint(initial_adapter_path) -> Optional[st
     if resume_spec.trainer_checkpoint is None:
         return None
     return str(resume_spec.trainer_checkpoint)
+
 
 def tune(
     test_nn,
@@ -911,7 +1015,9 @@ def tune(
     classification_mode=False,
     use_backbone=False,
     sft_nn_prefixes=None,
+    sft_dataset=None,
     num_cycles=None,
+    epoch_root=None,
 ):
     if not isinstance(conf_keys, (list, tuple)):
         conf_keys = (conf_keys,)
@@ -939,15 +1045,25 @@ def tune(
     unsloth_load_in_4bit = config.get("load_in_4bit", True)
     max_new_tokens = config.get("max_new_tokens", max_new_tokens)
     use_backbone = config.get("backbone", use_backbone)
+    chat_template_path = config.get("chat_template_path")
 
     access_token = None
     if token_from_file:
         with open(ab_root_path / "token") as f:
             access_token = f.readline()
 
-    print(f'[DEBUG]Argument Information:\nSkip generation until Epoch: {skip_epoch}\nPath to saved LoRA Layers: {llm_path}')
+    print(
+        f'[DEBUG]Argument Information:\nSkip generation until Epoch: {skip_epoch}\nPath to saved LoRA Layers: {llm_path}')
 
     train_config_path = conf_train_dir / llm_tune_conf
+    epoch_root_path = Path(epoch_root).expanduser() if epoch_root else epoch_dir()
+    print(f"[EVOLUTION] Epoch root: {epoch_root_path}")
+
+    def run_epoch_dir(*parts):
+        out = epoch_root_path
+        for part in parts:
+            out = out / f"A{part}"
+        return out
 
     with open(conf_test_dir / nn_gen_conf) as prompt_file:
         prompt_dict = json.load(prompt_file)
@@ -957,18 +1073,20 @@ def tune(
 
     model_loader = LLM(
         base_model_name,
-        quantization_config_4bit,
+        quantization_config_4bit if unsloth_load_in_4bit else None,
         access_token=access_token,
         use_deepspeed=use_deepspeed,
         context_length=context_length,
         training_args=training_args,
         use_unsloth=use_unsloth,
         load_in_4bit=unsloth_load_in_4bit,
+        chat_template_path=chat_template_path,
     )
 
     model = model_loader.get_model()
     tokenizer = model_loader.get_tokenizer()
-    trainer_resume_checkpoint = _resolve_tune_resume_trainer_checkpoint(llm_path)
+    trainer_resume_checkpoint = _resolve_tune_resume_trainer_checkpoint(
+        llm_path)
 
     if llm_path:
         print(f'Load saved LoRA layer from path: {llm_path}')
@@ -989,7 +1107,8 @@ def tune(
 
     print('Using Max Length:', model_loader.get_max_length())
 
-    chat_bot = ChatBot(model, tokenizer, temperature=temperature, top_k=top_k, top_p=top_p)
+    chat_bot = ChatBot(
+        model, tokenizer, temperature=temperature, top_k=top_k, top_p=top_p)
 
     state = {
         "experiment_id": nn_name_prefix or "exp_default",
@@ -1030,12 +1149,13 @@ def tune(
         "use_predictor": use_predictor,
         "use_backbone": use_backbone,
         "sft_nn_prefixes": sft_nn_prefixes,
+        "sft_dataset": sft_dataset,
         "trainer_resume_checkpoint": trainer_resume_checkpoint,
         "enable_merge": enable_merge,
         "classification_mode": classification_mode,
     }
 
-    shutil.rmtree(epoch_dir(), ignore_errors=True)
+    shutil.rmtree(epoch_root_path, ignore_errors=True)
 
     if use_agents:
         from ab.gpt.agents.run_agent import run_agent_controller
@@ -1043,16 +1163,25 @@ def tune(
 
     for epoch in range(llm_tune_epochs):
         print(f'[INFO]Start Epoch {epoch}')
-        out_path = epoch_dir(epoch)
+        out_path = run_epoch_dir(epoch)
         if epoch < skip_epoch:
             print(f'Skipped generation at epoch {epoch}')
         else:
             if trans_mode:
-                trans_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs, prompt_dict, test_nn, max_new_tokens, save_llm_output, nn_name_prefix)
+                trans_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs,
+                          prompt_dict, test_nn, max_new_tokens, save_llm_output, nn_name_prefix)
             else:
-                nn_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs, prompt_dict, test_nn, max_new_tokens, save_llm_output, nn_name_prefix, unsloth_max_input_length, prompt_batch, use_backbone=use_backbone)
+                nn_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs, prompt_dict, test_nn, max_new_tokens, save_llm_output, nn_name_prefix, unsloth_max_input_length, prompt_batch, use_backbone=use_backbone, sft_nn_prefixes=sft_nn_prefixes, sft_dataset=sft_dataset)
 
-            _evaluate_epoch(epoch, out_path, nn_name_prefix, nn_train_epochs, trans_mode, classification_mode)
+            _evaluate_epoch(
+                epoch,
+                out_path,
+                nn_name_prefix,
+                nn_train_epochs,
+                trans_mode,
+                classification_mode,
+                custom_synth_dir=synth_dir(out_path),
+            )
 
         print(f'[DEBUG]Perform finetune at epoch {epoch}.')
         model, chat_bot = _finetune_epoch(
@@ -1064,5 +1193,6 @@ def tune(
             trainer_resume_checkpoint,
             use_backbone=use_backbone,
             sft_nn_prefixes=sft_nn_prefixes,
+            sft_dataset=sft_dataset,
         )
         trainer_resume_checkpoint = None

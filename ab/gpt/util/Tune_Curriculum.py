@@ -151,107 +151,6 @@ def fix_param_usage(code: str) -> str:
                     '        self.prm = prm\n' + all_snippets.rstrip(),
                     1  # replace only first occurrence
                 )
-
-    # ── step 3: fix learn() — replace only if it uses DataLoader ────────────
-    lines = code.split('\n')
-    learn_start = None
-    learn_end = None
-
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith('def learn(') and learn_start is None:
-            learn_start = i
-        elif learn_start is not None and i > learn_start:
-            if (stripped.startswith('def ') or stripped.startswith('class ')) \
-                    and not line.startswith(' ' * 8):
-                learn_end = i
-                break
-
-    if learn_end is None:
-        learn_end = len(lines)
-
-    if learn_start is not None:
-        learn_body = '\n'.join(lines[learn_start:learn_end])
-        if 'DataLoader' in learn_body:
-            print("[FIX] learn() uses DataLoader — replacing with DataRoll-compatible version")
-            lines[learn_start:learn_end] = LEARN_REPLACEMENT.split('\n')
-            code = '\n'.join(lines)
-    elif learn_start is None:
-        print("[FIX] learn() not found — appending")
-        code = code + '\n' + LEARN_REPLACEMENT
-
-    # ── step 4: verify all params appear at least twice ──────────────────────
-    all_fixed = True
-    for key in REQUIRED_KEYS:
-        count = code.count(f"'{key}'") + code.count(f'"{key}"')
-        if count < 2:
-            print(f"[WARN] '{key}' still appears only {count}x after fix")
-            all_fixed = False
-
-    if all_fixed:
-        print("[FIX] ✓ All required params appear 2x+")
-
-    # step 5 — fix features() receiving non-raw input
-    # detect what variable is passed to self.features()
-    feat_match = re.search(r'self\.features\((\w+)\)', code)
-    if feat_match:
-        feat_var = feat_match.group(1)
-        if feat_var != 'x':
-            # features is NOT receiving raw image
-            print(f"[FIX] self.features({feat_var}) → self.features(x)")
-            code = re.sub(
-                r'self\.features\(' + feat_var + r'\)',
-                'self.features(x)',
-                code
-            )
-            # also fix curr_ch since features now takes raw image
-            curr_ch_matches = list(re.finditer(r'\bcurr_ch\s*=\s*(\d+)', code))
-            for m in curr_ch_matches:
-                val = int(m.group(1))
-                if val > 3:
-                    code = code.replace(m.group(0), 'curr_ch = 3', 1)
-                    print(f"[FIX] curr_ch={val} → 3")
-    # step 7 — fix infer_dimensions: ensure dummy defined and on device
-    if 'def infer_dimensions' in code:
-        lines = code.split('\n')
-        in_infer = False
-        for i, line in enumerate(lines):
-            if 'def infer_dimensions' in line:
-                in_infer = True
-            elif in_infer and line.strip().startswith('def '):
-                in_infer = False
-            if in_infer:
-                # fix self.features(x) → self.features(dummy)
-                if 'self.features(x)' in line:
-                    lines[i] = line.replace('self.features(x)', 'self.features(dummy)')
-                    print("[FIX] infer_dimensions: features(x) → features(dummy)")
-                # fix backbone(x) → backbone(dummy)
-                if re.search(r'self\.backbone\w*\(x\)', line):
-                    lines[i] = re.sub(r'(self\.backbone\w*\()(x\))', r'\1dummy)', line)
-                    print("[FIX] infer_dimensions: backbone(x) → backbone(dummy)")
-                # fix dummy without .to(self.device)
-                if 'torch.zeros' in line and '.to(' not in line:
-                    lines[i] = line.rstrip() + '.to(self.device)'
-                    print("[FIX] infer_dimensions: added .to(self.device) to dummy")
-        code = '\n'.join(lines)
-
-    # fix wrong permute
-    if 'x.permute(0, 3, 1, 2)' in code:
-        code = code.replace(
-            'x = x.permute(0, 3, 1, 2)',
-            '# input already [B,C,H,W]'
-        )
-        print("[FIX] Removed wrong x.permute(0,3,1,2)")
-
-    # fix self.to(self.device) missing before infer_dimensions call
-    if 'infer_dimensions' in code:
-        if not re.search(r'self\.to\(self\.device\).*infer_dimensions', code, re.DOTALL):
-            code = re.sub(
-                r'([ \t]*)(self\.infer_dimensions\w*\()',
-                lambda m: m.group(1) + 'self.to(self.device)\n' + m.group(1) + m.group(2),
-                code, count=1
-            )
-            print("[FIX] Added self.to(self.device) before infer_dimensions call")
     return code
 def apply_sliding_window(example, max_length, stride, tokenizer):
     input_ids = example['input_ids']
@@ -628,7 +527,7 @@ def nn_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs, prompt_dict, t
                 print(f"[ERROR] Code empty after stripping HTML comments for B{idx}")
                 continue
 
-            code = fix_param_usage(code)
+            #code = fix_param_usage(code)
 
             # final batch count check
             batch_count = code.count("'batch'") + code.count('"batch"')
@@ -685,7 +584,7 @@ def nn_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs, prompt_dict, t
             shutil.rmtree(spurious_nn)
             print("[FIX] Removed spurious ab/nn directory")
 
-        NNEval.main(nn_name_prefix, nn_train_epochs, epoch, batch=16, epoch_limit_minutes=8)
+        NNEval.main(nn_name_prefix, nn_train_epochs, epoch, batch=16, epoch_limit_minutes=8, use_sequential=True)
         print('[DEBUG] Release_memory.')
         release_memory()
     else:

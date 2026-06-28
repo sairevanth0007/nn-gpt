@@ -15,6 +15,7 @@ conf_prompt_dir = conf_dir / 'prompt'
 conf_test_dir = conf_prompt_dir / 'test'
 conf_train_dir = conf_prompt_dir / 'train'
 conf_llm_dir = conf_dir / 'llm'
+conf_chat_template_dir = conf_dir / 'chat_template'
 
 nngpt_dir = out_dir / 'nngpt'
 
