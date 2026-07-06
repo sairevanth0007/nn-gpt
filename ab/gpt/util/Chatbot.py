@@ -5,6 +5,7 @@ import re
 
 from transformers import PreTrainedTokenizer, PreTrainedModel, pipeline
 from ab.gpt.util.Util import extract_code, extract_hyperparam, extract_transform, extract_all_to_train
+from ab.gpt.util.prompt.Prompt import DEFAULT_CHAT_TEMPLATE
 import torch
 
 extra_instructions = (
@@ -97,6 +98,15 @@ class ChatBot:
         self.system_prompt = system_prompt
         self.disable_chat_template = _env_flag("NNGPT_DISABLE_CHAT_TEMPLATE")
         self.strip_think_output = _env_flag("NNGPT_STRIP_THINK_OUTPUT")
+
+        # Tokenizers for models like ABrain/NNGPT-UniqueArch-Rag ship without a
+        # chat_template, so apply_chat_template raises ValueError during generation
+        # (swallowed as "no code generated"). Apply the same User/Assistant fallback
+        # used for the training-data build so training and inference prompt formats match.
+        # Tokenizers that already define chat_template (Qwen, DeepSeek, ...) are untouched.
+        if not self.disable_chat_template and not getattr(self.tokenizer, "chat_template", None):
+            print("[ChatBot] Tokenizer has no chat_template; applying default User/Assistant fallback.")
+            self.tokenizer.chat_template = DEFAULT_CHAT_TEMPLATE
         
         # Check if model is ONNX (wrapped or direct ORTModel)
         self.is_onnx = (

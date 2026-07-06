@@ -198,7 +198,7 @@ class NNGenPrompt(Prompt):
                     print("-" * 50)
                 # ================================================================
 
-                text = self.tokenizer.apply_chat_template(
+                text = self._apply_chat_template(
                     self._build_messages(
                         inst, response, system_prompt=system_text or None),
                     tokenize=False)
