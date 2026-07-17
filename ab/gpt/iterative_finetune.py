@@ -348,6 +348,14 @@ class IterativeFinetuner:
             "python", "-m", "ab.gpt.TuneNNGen",
             "--llm_conf", self.llm_conf,
             "--data_dir", str(data_dir),
+            # One SFT pass per pipeline cycle: the pipeline drives its own
+            # generation/eval separately (generate_models -> nn_sftcodegen_rag),
+            # so bound the standalone tune() outer loop to a single epoch
+            # (--num_cycles 1) and skip its internal NN generation/eval
+            # (--skip_epoches 1). Without these, tune() falls back to 100
+            # internal generate/eval/SFT rounds per cycle.
+            "--num_cycles", "1",
+            "--skip_epoches", "1",
         ]
 
         # Load previous cycle's checkpoint for continual learning (cycle 2+)
