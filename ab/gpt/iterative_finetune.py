@@ -23,7 +23,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 from ab.gpt.iterative_pipeline.novelty_checker import NoveltyChecker
 from ab.gpt.iterative_pipeline.training_data_manager import TrainingDataManager
@@ -62,6 +62,8 @@ class IterativeFinetuner:
             max_retries: int = 3,
             use_optimized_training: bool = True,
             num_train_epochs: int = 5,
+            dataset: str = 'cifar-10',
+            nn_prefixes: Tuple[str, ...] = ('ga-', 'GenFractalNet'),
     ):
         self.output_dir = out_dir / 'curation_output'
         self.base_data_dir = self.output_dir / 'chat_data'
@@ -78,6 +80,9 @@ class IterativeFinetuner:
         self.max_retries = max_retries
         self.use_optimized_training = use_optimized_training
         self.num_train_epochs = num_train_epochs
+        # Corpus filters for LEMUR curation (default cifar-10 / ga-,GenFractalNet)
+        self.dataset = dataset
+        self.nn_prefixes = tuple(nn_prefixes)
 
         # Initialize components
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -194,7 +199,11 @@ class IterativeFinetuner:
         try:
             # Step 1: Curate from LEMUR
             logger.info("Step 1: Curating models from LEMUR...")
-            curate_result = curate_from_lemur(curation_output_dir)
+            curate_result = curate_from_lemur(
+                curation_output_dir,
+                dataset=self.dataset,
+                nn_prefixes=self.nn_prefixes,
+            )
             logger.info(f"✓ Curation from LEMUR completed: {curate_result}")
 
             # Step 2: Build chat data (ChatPrepConfig writes to curation_output by default)
