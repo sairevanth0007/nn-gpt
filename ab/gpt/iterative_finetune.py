@@ -394,21 +394,28 @@ class IterativeFinetuner:
         logger.info(f"Running fine-tuning: {' '.join(cmd)}")
         start_time = time.time()
 
+        # Capture stderr to a log file under the cycle directory so errors are
+        # inspectable even after the run (previously discarded to terminal scrollback).
+        stderr_log_path = self.output_dir / f"cycle_{cycle}" / "finetune_stderr.log"
+
         # Retry fine-tuning with exponential backoff
         def run_finetuning_cmd():
             # Clear GPU cache before each attempt
             clear_gpu_cache()
 
-            # Stream output in real-time while still capturing return code
-            result = subprocess.run(
-                cmd,
-                capture_output=False,  # Stream output to terminal in real-time
-                text=True,
-                check=False  # We'll check returncode manually
-            )
+            # Stream stdout in real-time; capture stderr to a log file so we
+            # actually see errors.
+            with open(stderr_log_path, "w") as stderr_log:
+                result = subprocess.run(
+                    cmd,
+                    stdout=None,        # Stream stdout to terminal in real-time
+                    stderr=stderr_log,  # Capture stderr to log under cycle dir
+                    text=True,
+                    check=False  # We'll check returncode manually
+                )
             if result.returncode != 0:
                 logger.error(f"Fine-tuning command failed with exit code {result.returncode}")
-                logger.error("Check terminal output above for error details")
+                logger.error(f"stderr captured at: {stderr_log_path}")
                 logger.error("Common issues:")
                 logger.error("  - CUDA out of memory: Free GPU memory or enable DeepSpeed")
                 logger.error("  - Training errors: Check training data and config")

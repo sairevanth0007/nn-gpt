@@ -2,7 +2,8 @@
   "apiVersion": "batch/v1",
   "kind": "Job",
   "metadata": {
-    "name": "nngpt-qwen-full"
+    "name": "nngpt-qwen-full",
+    "namespace": "b-s-mulukuledu"
   },
   "spec": {
     "parallelism": 1,
@@ -10,7 +11,7 @@
     "template": {
       "spec": {
         "containers": [{
-          "args": ["python3 -u /a/mm/run.py ab.gpt.TuneNNGen --llm_conf /a/mm/patches/qwen2.5_coder_7b_full.json --num_train_epochs 1 --test_nn 25"],
+          "args": ["python3 -u /a/mm/run.py ab.gpt.TuneNNGen --llm_conf /a/mm/configs/qwen2.5_coder_7b_full.json --num_train_epochs 1 --test_nn 25 --max_prompts 1024"],
           "env": [{
             "name": "NNGPT_DIR_OVERRIDE",
             "value": "/a/mm/out/nngpt-qwen-full"
