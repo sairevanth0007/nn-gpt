@@ -9,6 +9,109 @@ short alias  <a href='https://pypi.python.org/pypi/lmurg'>lmurg</a>
 
 This Python-based <a href='https://github.com/ABrain-One/nn-gpt'>NNGPT</a> project leverages large language models (LLMs) to automate the creation of neural network architectures, streamlining the design process for machine learning practitioners. It leverages various neural networks from the <a href="https://github.com/ABrain-One/nn-dataset">LEMUR Dataset</a> to fine-tune LLMs and provide insights into potential architectures during the creation of new neural network models.
 
+## Create and Activate a Virtual Environment (recommended)
+For Linux/Mac:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   python3 -m pip install --upgrade pip
+   ```
+For Windows:
+   ```bash
+   python3 -m venv .venv
+   .venv\Scripts\activate
+   python3 -m pip install --upgrade pip
+   ```
+
+It is assumed that CUDA 13.0 is installed; otherwise, consider replacing 'cu130' with the appropriate version. Most LLM usage scenarios require GPUs with at least 24 GB of memory.
+
+## Environment for NNGPT Developers
+### Pip package manager
+
+Create a virtual environment, activate it, and run the following command to install all the project dependencies:
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu130
+MAX_JOBS=4 NVCC_THREADS=1 pip install -r req-no-isolation.txt --no-build-isolation --no-cache -v --extra-index-url https://download.pytorch.org/whl/cu130
+```
+Removing the --no-cache parameter allows previously built packages to be retrieved from the cache, but it can lead to problems if the PyTorch version has changed.
+
+If there are installation problems, install the dependencies from the 'requirements.txt' file one by one.
+
+## Update of NN Dataset
+To get the latest code and statistics, install the most recent version of the LEMUR Dataset from GitHub:
+```bash
+rm -rf db
+pip uninstall -y nn-dataset
+pip install --no-cache-dir git+https://github.com/ABrain-One/nn-dataset --extra-index-url https://download.pytorch.org/whl/cu130
+```
+Installing the stable version:
+```bash
+rm -rf db
+pip uninstall -y nn-dataset 
+pip install nn-dataset --extra-index-url https://download.pytorch.org/whl/cu130
+```
+Adding functionality to export data to Excel files and generate plots for <a href='https://github.com/ABrain-One/nn-stat'>analyzing neural network performance</a>:
+```bash
+pip install nn-stat --extra-index-url https://download.pytorch.org/whl/cu130
+```
+and export/generate:
+```bash
+python -m ab.stat.export
+```
+
+## Installation of NNGPT with pip
+
+```bash
+   pip install nn-gpt --extra-index-url https://download.pytorch.org/whl/cu130
+   pip install nn-gpt[flash] --no-build-isolation --extra-index-url https://download.pytorch.org/whl/cu130
+   ```
+
+## Use
+
+- **`ab.gpt.act.alter.*`** – Generates modified neural network models.  
+  Use the `-e` argument to set the number of epochs for the initial CV model generation.
+
+- **`ab.gpt.NNEval`** – Evaluates the models generated in the previous step.
+
+- **`ab.gpt.TuneNNGen*`** – Performs fine-tuning and evaluation of an LLM. For evaluation purposes, the LLM generates neural network models, which are then trained to assess improvements in the LLM’s performance on this task. The -s flag allows skipping model generation for the specified number of epochs.
+
+- **`ab.gpt.AccPredictor`** – Fine-tunes and evaluates a Qwen3-8B accuracy predictor from LEMUR training runs. Given early-epoch accuracies and neural network code, it predicts final `best_accuracy` and `best_epoch`.
+
+  Running the script runs four steps in order:
+
+  1. **Preprocessing** — loads training runs from the nn_dataset API, filters runs with ≥50 epochs, and writes `ab/gpt/data/llm_finetuning_data.jsonl`
+  2. **Data preparation for training** — converts preprocessed runs into ChatML train/val/test splits (`ab/gpt/data/train_llm_dataset.jsonl`, `val_llm_dataset.jsonl`, `test_llm_dataset.jsonl`)
+  3. **Model training** — QLoRA fine-tunes Qwen3-8B with validation and early stopping; saves the checkpoint to `ab/gpt/model2/`
+  4. **Model testing** — runs inference on the test split and writes `ab/gpt/data/test_predictions.csv` and `test_metrics.log`
+
+  ```bash
+  python -m ab.gpt.AccPredictor
+  ```
+
+  Individual steps can also be imported:
+
+  ```python
+  from ab.gpt.AccPredictor import data_preprocessing, prepare_llm_datasets, train_model, test_model, predict_best_accuracy
+  from ab.gpt.AccPredictor import DEFAULT_TRAIN_PATH, DEFAULT_VAL_PATH, DEFAULT_OUTPUT_DIR, DEFAULT_TEST_PATH
+
+  data_preprocessing()
+  prepare_llm_datasets()
+  train_model(DEFAULT_TRAIN_PATH, DEFAULT_VAL_PATH)
+  test_model(model_path=DEFAULT_OUTPUT_DIR, data_path=DEFAULT_TEST_PATH)
+
+  # Inference with the published Hugging Face checkpoint
+  best_acc, best_epoch = predict_best_accuracy(task, dataset, metric, nn_code, epoch_1_acc, epoch_2_acc)
+  ```
+
+  Requires a GPU with ≥24 GB VRAM, `unsloth`, and the LEMUR/nn-dataset package installed.
+
+- **`ab.gpt.TuneNNGen_delta.py`** – Delta-based fine-tuning entry point (see [arXiv:2605.04903](https://arxiv.org/abs/2605.04903)). The LLM generates compact unified diffs (deltas) to refine baseline architectures instead of full code. Uses paper-aligned hyperparameters (lr=1e-5, temperature=0.35, top-k=50, LoRA with `lm_head`). Calls `TuneNNGen.main()` with delta defaults — no upstream behavior is changed.
+  ```bash
+  python -m ab.gpt.TuneNNGen_delta
+  python -m ab.gpt.TuneNNGen_delta --llm_conf qwen2.5_coder_7b_instruct.json
+  ```
+
 ## LangGraph Multi-Agent Workflow
 
 NNGPT supports an optional LangGraph-based multi-agent orchestration mode. The agent system integrates directly inside `tune()` — no separate entry point, no duplicated logic.
@@ -55,107 +158,6 @@ python -m ab.gpt.TuneNNGen --use_predictor
 | `ab/gpt/util/Tune.py` | Single source of truth: `nn_gen`, `trans_gen`, `_evaluate_epoch`, `_finetune_epoch`, `generate_step`, `evaluate_step`, `finetune_step` |
 | `ab/gpt/AccPredictor.py` | Accuracy predictor: data prep, fine-tuning, and evaluation |
 
-## Create and Activate a Virtual Environment (recommended)
-For Linux/Mac:
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   python3 -m pip install --upgrade pip
-   ```
-For Windows:
-   ```bash
-   python3 -m venv .venv
-   .venv\Scripts\activate
-   python3 -m pip install --upgrade pip
-   ```
-
-It is assumed that CUDA 13.0 is installed; otherwise, consider replacing 'cu130' with the appropriate version. Most LLM usage scenarios require GPUs with at least 24 GB of memory.
-
-## Environment for NNGPT Developers
-### Pip package manager
-
-Create a virtual environment, activate it, and run the following command to install all the project dependencies:
-```bash
-python -m pip install --upgrade pip
-pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu130
-pip install -r req-no-isolation.txt --no-build-isolation --extra-index-url https://download.pytorch.org/whl/cu130
-```
-
-If there are installation problems, install the dependencies from the 'requirements.txt' file one by one.
-
-## Update of NN Dataset
-To get the latest code and statistics, install the most recent version of the LEMUR Dataset from GitHub:
-```bash
-rm -rf db
-pip uninstall -y nn-dataset
-pip install --no-cache-dir git+https://github.com/ABrain-One/nn-dataset --extra-index-url https://download.pytorch.org/whl/cu130
-```
-Installing the stable version:
-```bash
-rm -rf db
-pip uninstall -y nn-dataset 
-pip install nn-dataset --extra-index-url https://download.pytorch.org/whl/cu130
-```
-Adding functionality to export data to Excel files and generate plots for <a href='https://github.com/ABrain-One/nn-stat'>analyzing neural network performance</a>:
-```bash
-pip install nn-stat --extra-index-url https://download.pytorch.org/whl/cu130
-```
-and export/generate:
-```bash
-python -m ab.stat.export
-```
-
-## Installation of NNGPT with pip
-
-```bash
-   pip install nn-gpt --extra-index-url https://download.pytorch.org/whl/cu130
-   pip install nn-gpt[flash] --no-build-isolation --extra-index-url https://download.pytorch.org/whl/cu130
-   ```
-
-## Use
-
-- **`ab.gpt.NNAlter*`** – Generates modified neural network models.  
-  Use the `-e` argument to set the number of epochs for the initial CV model generation.
-
-- **`ab.gpt.NNEval`** – Evaluates the models generated in the previous step.
-
-- **`ab.gpt.TuneNNGen*`** – Performs fine-tuning and evaluation of an LLM. For evaluation purposes, the LLM generates neural network models, which are then trained to assess improvements in the LLM’s performance on this task. The -s flag allows skipping model generation for the specified number of epochs.
-
-- **`ab.gpt.AccPredictor`** – Fine-tunes and evaluates a Qwen3-8B accuracy predictor from LEMUR training runs. Given early-epoch accuracies and neural network code, it predicts final `best_accuracy` and `best_epoch`.
-
-  Running the script runs four steps in order:
-
-  1. **Preprocessing** — loads training runs from the nn_dataset API, filters runs with ≥50 epochs, and writes `ab/gpt/data/llm_finetuning_data.jsonl`
-  2. **Data preparation for training** — converts preprocessed runs into ChatML train/val/test splits (`ab/gpt/data/train_llm_dataset.jsonl`, `val_llm_dataset.jsonl`, `test_llm_dataset.jsonl`)
-  3. **Model training** — QLoRA fine-tunes Qwen3-8B with validation and early stopping; saves the checkpoint to `ab/gpt/model2/`
-  4. **Model testing** — runs inference on the test split and writes `ab/gpt/data/test_predictions.csv` and `test_metrics.log`
-
-  ```bash
-  python -m ab.gpt.AccPredictor
-  ```
-
-  Individual steps can also be imported:
-
-  ```python
-  from ab.gpt.AccPredictor import data_preprocessing, prepare_llm_datasets, train_model, test_model, predict_best_accuracy
-  from ab.gpt.AccPredictor import DEFAULT_TRAIN_PATH, DEFAULT_VAL_PATH, DEFAULT_OUTPUT_DIR, DEFAULT_TEST_PATH
-
-  data_preprocessing()
-  prepare_llm_datasets()
-  train_model(DEFAULT_TRAIN_PATH, DEFAULT_VAL_PATH)
-  test_model(model_path=DEFAULT_OUTPUT_DIR, data_path=DEFAULT_TEST_PATH)
-
-  # Inference with the published Hugging Face checkpoint
-  best_acc, best_epoch = predict_best_accuracy(task, dataset, metric, nn_code, epoch_1_acc, epoch_2_acc)
-  ```
-
-  Requires a GPU with ≥24 GB VRAM, `unsloth`, and the LEMUR/nn-dataset package installed.
-
-- **`ab.gpt.TuneNNGen_delta.py`** – Delta-based fine-tuning entry point (see [arXiv:2605.04903](https://arxiv.org/abs/2605.04903)). The LLM generates compact unified diffs (deltas) to refine baseline architectures instead of full code. Uses paper-aligned hyperparameters (lr=1e-5, temperature=0.35, top-k=50, LoRA with `lm_head`). Calls `TuneNNGen.main()` with delta defaults — no upstream behavior is changed.
-  ```bash
-  python -m ab.gpt.TuneNNGen_delta
-  python -m ab.gpt.TuneNNGen_delta --llm_conf qwen2.5_coder_7b_instruct.json
-  ```
 
 <a href='https://huggingface.co/ABrain'><strong>Fine-tuned LLMs</strong></a>
 

@@ -6,7 +6,7 @@ using delta-based approach, where the LLM generates code deltas (unified diffs)
 instead of full code.
 
 Usage:
-    python -m ab.gpt.NNAlter_7B_delta --epochs 8
+    python -m ab.gpt.act.alter.ds_q_7B_delta --epochs 8
 """
 
 import argparse

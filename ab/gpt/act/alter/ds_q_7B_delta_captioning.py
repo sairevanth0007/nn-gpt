@@ -5,7 +5,7 @@ This module provides a simple interface for generating improved neural networks
 using delta-based approach, specifically tailored for the image captioning pipeline.
 
 Usage:
-    python -m ab.gpt.NNAlter_7B_delta_captioning --epochs 8
+    python -m ab.gpt.act.alter.ds_q_7B_delta_captioning --epochs 8
 """
 
 import argparse
