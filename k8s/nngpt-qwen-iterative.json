@@ -1,0 +1,70 @@
+{
+  "apiVersion": "batch/v1",
+  "kind": "Job",
+  "metadata": {
+    "name": "nngpt-qwen-iterative",
+    "namespace": "b-s-mulukuledu"
+  },
+  "spec": {
+    "parallelism": 1,
+    "ttlSecondsAfterFinished": 86400,
+    "template": {
+      "spec": {
+        "containers": [{
+          "args": ["set -o pipefail; python3 -u /a/mm/run.py ab.gpt.TuneNNGen --llm_conf qwen2.5_coder_7b_instruct.json --run_iterative_pipeline --cycles 22 --models_per_cycle 25 --nn_train_epochs 1 --dataset cifar-10 --nn_prefixes ga-,GenFractalNet --num_train_epochs 5 2>&1 | tee /a/mm/nngpt-qwen-iterative.log; ec=${PIPESTATUS[0]}; curl -s -d \"Qwen iterative pipeline finished (exit=$ec)\" ntfy.sh/nngpt-rohit-2026; exit $ec"],
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "runAsUser": 1025,
+            "runAsGroup": 1376
+          },
+          "volumeMounts": [{
+            "mountPath": "/dev/shm",
+            "name": "shm"
+          }, {
+            "mountPath": "/a/mm",
+            "name": "v0"
+          }, {
+            "mountPath": "/a/mm/data",
+            "name": "v1"
+          }],
+          "name": "ml",
+          "command": ["/bin/bash", "-c"],
+          "imagePullPolicy": "Always",
+          "image": "ws.ab/shared/ai-linux-nngpt:v1",
+          "resources": {
+            "requests": {
+              "nvidia.com/gpu": 1,
+              "cpu": 8,
+              "memory": "30Gi"
+            },
+            "limits": {
+              "nvidia.com/gpu": 1,
+              "cpu": 64,
+              "memory": "120Gi"
+            }
+          }
+        }],
+        "restartPolicy": "Never",
+        "volumes": [{
+          "name": "shm",
+          "emptyDir": {
+            "medium": "Memory",
+            "sizeLimit": "16Gi"
+          }
+        }, {
+          "name": "v0",
+          "hostPath": {
+            "path": "/shared/ssd/home/b-s-mulukuledu/exp",
+            "type": "DirectoryOrCreate"
+          }
+        }, {
+          "name": "v1",
+          "hostPath": {
+            "path": "/shared/local/data/a-group-automl/data",
+            "type": "DirectoryOrCreate"
+          }
+        }]
+      }
+    }
+  }
+}
