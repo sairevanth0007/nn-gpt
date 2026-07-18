@@ -39,6 +39,7 @@ from ab.dup.preprocessing import curate_from_lemur
 from ab.chatprep.prompt_builder import ChatPrepConfig
 from ab.gpt.TuneNNGen import get_pipeline_defaults
 from ab.nn.util.Const import out_dir
+from ab.gpt.util.Const import nngpt_dir
 
 # Setup logging - will be configured after output_dir is known
 logger = logging.getLogger(__name__)
@@ -344,6 +345,16 @@ class IterativeFinetuner:
         ft_output_dir = self.output_dir / f"cycle_{cycle}" / "finetuning_output"
         ft_output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Clear the HF Trainer output dir (out/nngpt/outputs) before fine-tuning so
+        # stale checkpoints from a previous run/cycle cannot be mistaken for this
+        # cycle's output. TuneNNGen re-creates it. The previous cycle's adapter lives
+        # in the isolated cycle_<N-1>/checkpoint dir (passed via --peft), not here, so
+        # wiping this dir is safe for continual learning.
+        trainer_output_dir = nngpt_dir / 'outputs'
+        if trainer_output_dir.exists():
+            logger.info(f"Clearing stale trainer output dir before fine-tuning: {trainer_output_dir}")
+            shutil.rmtree(trainer_output_dir)
+
         cmd = [
             "python", "-m", "ab.gpt.TuneNNGen",
             "--llm_conf", self.llm_conf,
@@ -472,11 +483,41 @@ class IterativeFinetuner:
         training_time = time.time() - start_time
         logger.info(f"Fine-tuning completed in {training_time / 60:.1f} minutes")
 
-        # Find the final checkpoint from fine-tuning
-        # TuneNNGen saves to out/qlora-sft/final, but we'll copy it to isolated directory
-        source_checkpoint = out_dir / 'qlora-sft/final'
-        if not source_checkpoint.exists():
-            logger.error(f"Checkpoint directory not found: {source_checkpoint}")
+        # Find the best checkpoint from fine-tuning.
+        # TuneNNGen sets TrainingArguments.output_dir = nngpt_dir/'outputs', where the HF
+        # Trainer writes checkpoint-<step>/ dirs plus trainer_state.json. With
+        # load_best_model_at_end, trainer_state.json records the best checkpoint in
+        # 'best_model_checkpoint' as an in-CONTAINER absolute path, so we use only its
+        # basename and re-root it under the local trainer output dir. Fall back to the
+        # newest checkpoint by mtime (NOT by step number: a reused output dir may hold
+        # higher-numbered stragglers from an earlier run).
+        trainer_output_dir = nngpt_dir / 'outputs'
+        state_file = trainer_output_dir / 'trainer_state.json'
+        source_checkpoint = None
+        if state_file.exists():
+            try:
+                best = json.load(open(state_file)).get('best_model_checkpoint')
+            except (ValueError, OSError) as e:
+                logger.warning(f"Could not read {state_file}: {e}")
+                best = None
+            if best:
+                candidate = trainer_output_dir / Path(best).name
+                if candidate.exists():
+                    source_checkpoint = candidate
+                    logger.info(f"Using best checkpoint from trainer_state.json: {source_checkpoint}")
+                else:
+                    logger.warning(f"best_model_checkpoint {best} recorded but not present at {candidate}")
+        if source_checkpoint is None:
+            checkpoints = sorted(
+                trainer_output_dir.glob('checkpoint-*'),
+                key=lambda p: p.stat().st_mtime,
+            )
+            if checkpoints:
+                source_checkpoint = checkpoints[-1]
+                logger.info(f"Falling back to newest checkpoint by mtime: {source_checkpoint}")
+
+        if source_checkpoint is None or not source_checkpoint.exists():
+            logger.error(f"No fine-tuning checkpoint found under {trainer_output_dir}")
             return {
                 "success": False,
                 "error": "checkpoint_not_found",
