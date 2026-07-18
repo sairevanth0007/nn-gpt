@@ -22,7 +22,7 @@ DIR="$1"
 TOPIC="$2"
 PER_CYCLE="${3:-25}"
 LAST_FILE="/tmp/cycle_monitor_last_$TOPIC"
-STALL_LIMIT=300          # iterations (x60s) with no new cycle => finished/stalled (5h)
+STALL_LIMIT=2400          # iterations (x60s) with no new cycle => finished/stalled (40h)
 
 # latest_cycle: print the highest N for which cycle_<N>/evaluation_results.json
 # exists, or nothing (exit 1) if no cycle has completed yet.

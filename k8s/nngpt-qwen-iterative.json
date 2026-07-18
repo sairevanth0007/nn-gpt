@@ -11,7 +11,7 @@
     "template": {
       "spec": {
         "containers": [{
-          "args": ["set -o pipefail; python3 -u /a/mm/run.py ab.gpt.TuneNNGen --llm_conf qwen2.5_coder_7b_instruct.json --run_iterative_pipeline --cycles 22 --models_per_cycle 25 --nn_train_epochs 1 --dataset cifar-10 --nn_prefixes ga-,GenFractalNet --num_train_epochs 5 2>&1 | tee /a/mm/nngpt-qwen-iterative.log; ec=${PIPESTATUS[0]}; curl -s -d \"Qwen iterative pipeline finished (exit=$ec)\" ntfy.sh/nngpt-rohit-2026; exit $ec"],
+          "args": ["set -o pipefail; python3 -u /a/mm/run.py ab.gpt.TuneNNGen --llm_conf qwen2.5_coder_7b_instruct.json --run_iterative_pipeline --cycles 22 --models_per_cycle 25 --nn_train_epochs 1 --dataset cifar-10 --nn_prefixes ga-,GenFractalNet --num_train_epochs 1 2>&1 | tee /a/mm/nngpt-qwen-iterative.log; ec=${PIPESTATUS[0]}; curl -s -d \"Qwen iterative pipeline finished (exit=$ec)\" ntfy.sh/nngpt-rohit-2026; exit $ec"],
           "securityContext": {
             "allowPrivilegeEscalation": false,
             "runAsUser": 1025,
