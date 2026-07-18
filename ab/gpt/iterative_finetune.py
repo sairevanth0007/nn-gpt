@@ -1142,6 +1142,10 @@ class IterativeFinetuner:
                 "accuracies": [],
             }
 
+        from ab.gpt.util.PostprocessNN import postprocess_directory
+        logger.info("Postprocessing generated models (in_shape, class name, learn, hyperparams)...")
+        postprocess_directory(accepted_code_dir)
+
         # Rank models by structural quality before evaluation
         logger.info("Ranking models by structural quality...")
         reranker = StructuralReranker()
