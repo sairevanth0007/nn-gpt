@@ -904,6 +904,7 @@ def _finetune_epoch(
     use_backbone=False,
     sft_nn_prefixes=None,
     sft_dataset=None,
+    data_dir=None,
 ):
     """
     Single source of truth for one finetune epoch.
@@ -932,7 +933,7 @@ def _finetune_epoch(
             else context_length if context_length
             else model_loader.get_max_length()
         )
-        data_processor = NNGenPrompt(length, tokenizer, train_config_path)
+        data_processor = NNGenPrompt(length, tokenizer, train_config_path, data_dir=data_dir)
 
     dataset = data_processor.get_dataset(
         only_best_accuracy,
@@ -1058,6 +1059,7 @@ def tune(
     only_best_accuracy=False,
     load_in_4bit=None,
     epoch_root=None,
+    data_dir=None,
 ):
     if not isinstance(conf_keys, (list, tuple)):
         conf_keys = (conf_keys,)
@@ -1232,5 +1234,6 @@ def tune(
             use_backbone=use_backbone,
             sft_nn_prefixes=sft_nn_prefixes,
             sft_dataset=sft_dataset,
+            data_dir=data_dir,
         )
         trainer_resume_checkpoint = None

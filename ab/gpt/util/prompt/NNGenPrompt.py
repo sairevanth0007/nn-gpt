@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import ab.nn.api as lemur
 from overrides import override
@@ -23,9 +24,46 @@ class NNGenPrompt(Prompt):
     Assumes the existence of accuracies.json and folder-based dataset
     """
 
-    def __init__(self, max_len: int, tokenizer: PreTrainedTokenizerBase, prompts_path):
+    def __init__(self, max_len: int, tokenizer: PreTrainedTokenizerBase, prompts_path, data_dir=None):
         super().__init__(max_len, tokenizer)
         self.prompts_path = prompts_path
+        # When set, SFT trains on this on-disk chat corpus (data_dir/train.jsonl)
+        # instead of querying LEMUR. Used by the iterative pipeline so each cycle's
+        # fine-tuning uses its growing curated corpus, closing the feedback loop.
+        self.data_dir = data_dir
+
+    def _raw_dataset_from_disk(self, n_training_prompts=None) -> DataFrame:
+        """Build the SFT frame from a pipeline corpus of chat 'messages' rows
+        (data_dir/train.jsonl), instead of LEMUR. Produces the exact same
+        columns get_dataset()/preprocess_batch consume: the LEMUR path emits
+        [instruction, context, response, category, text]; we mirror it."""
+        train_path = Path(self.data_dir) / "train.jsonl"
+        if not train_path.exists():
+            raise FileNotFoundError(
+                f"NNGenPrompt: data_dir set but corpus not found at {train_path}")
+        rows = []
+        with open(train_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    rows.append(json.loads(line))
+        if n_training_prompts:
+            rows = rows[:n_training_prompts]
+        frame = DataFrame(
+            columns=['instruction', 'context', 'response', 'category', 'text'])
+        for row in rows:
+            messages = row.get("messages", [])
+            user_txt = next(
+                (m["content"] for m in messages if m["role"] == "user"), "")
+            assistant_txt = next(
+                (m["content"] for m in messages if m["role"] == "assistant"), "")
+            # Full templated conversation (incl. assistant target) — same as the
+            # LEMUR path, which builds text via _apply_chat_template(_build_messages(...)).
+            text = self._apply_chat_template(messages, tokenize=False)
+            frame.loc[len(frame)] = [user_txt, "", assistant_txt, "", text]
+        print(f"[SFT] Loaded {len(frame)} training rows from {train_path} "
+              f"(LEMUR query bypassed)", flush=True)
+        return frame
 
     @override
     def get_raw_dataset(self, only_best_accuracy, n_training_prompts=None) -> DataFrame:
@@ -33,6 +71,10 @@ class NNGenPrompt(Prompt):
         :return:
             pandas.Dataframe object with columns described in nn_api.data()
         """
+        # Iterative-pipeline path: train on the on-disk augmented corpus.
+        if self.data_dir is not None:
+            return self._raw_dataset_from_disk(n_training_prompts)
+
         prompt_lists = []
 
         # /workspace/nn-gpt/ab/gpt/conf/prompt/train/NN_gen.json
