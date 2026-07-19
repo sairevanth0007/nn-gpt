@@ -360,6 +360,12 @@ class IterativeFinetuner:
             "--epoch_root", str(generation_dir),
             "--test_nn", str(self.models_per_cycle),
             "--nn_train_epochs", "1",
+            # Force the classic tune() for-loop (single source of truth). Agent
+            # mode (use_agents defaults True) routes through the LangGraph
+            # StateGraph, whose generate_step hardcodes epoch_dir() and whose
+            # finetune node ignores data_dir — bypassing the --epoch_root and
+            # --data_dir wiring this pipeline depends on.
+            "--no-use_agents",
         ]
 
         # Load previous cycle's checkpoint for continual learning (cycle 2+)
