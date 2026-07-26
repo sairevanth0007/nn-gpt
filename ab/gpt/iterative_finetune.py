@@ -65,6 +65,8 @@ class IterativeFinetuner:
             num_train_epochs: int = 5,
             dataset: str = DEFAULT_DATASET,
             nn_prefixes: Tuple[str, ...] = DEFAULT_NN_PREFIXES,
+            max_new_tokens: Optional[int] = None,
+            nn_gen_conf: Optional[str] = None,
     ):
         self.output_dir = out_dir / 'curation_output'
         self.base_data_dir = self.output_dir / 'chat_data'
@@ -84,6 +86,12 @@ class IterativeFinetuner:
         # Corpus filters for LEMUR curation (default cifar-10 / ga-,GenFractalNet)
         self.dataset = dataset
         self.nn_prefixes = tuple(nn_prefixes)
+        # Per-run overrides for the inner generation subprocess. When None, the
+        # inner TuneNNGen falls back to its own defaults (pipeline max_new_tokens
+        # and NN_gen.json). Set these to fit short-context models (e.g. DeepSeek
+        # 8192 / Mistral 4096) whose full context cannot hold the default prompt.
+        self.max_new_tokens = max_new_tokens
+        self.nn_gen_conf = nn_gen_conf
 
         # Initialize components
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -368,6 +376,11 @@ class IterativeFinetuner:
             "--no-use_agents",
         ]
 
+        # Per-run prompt-config override (e.g. a trimmed NN_gen variant for
+        # short-context models). When unset, the inner TuneNNGen uses NN_gen.json.
+        if self.nn_gen_conf:
+            cmd.extend(["--nn_gen_conf", self.nn_gen_conf])
+
         # Load previous cycle's checkpoint for continual learning (cycle 2+)
         if cycle > 1:
             prev_checkpoint = self.output_dir / f"cycle_{cycle - 1}" / "checkpoint"
@@ -397,8 +410,11 @@ class IterativeFinetuner:
             # LoRA configuration
             optimized_params.extend(["--target_modules", pipeline_defaults['target_modules']])
 
-            # Generation parameters
-            optimized_params.extend(["--max_new_tokens", str(pipeline_defaults['max_new_tokens'])])
+            # Generation parameters. max_new_tokens is overridable per run so the
+            # output budget fits short-context models (prompt + max_new_tokens
+            # must be < the model's context window).
+            gen_max_new_tokens = self.max_new_tokens if self.max_new_tokens is not None else pipeline_defaults['max_new_tokens']
+            optimized_params.extend(["--max_new_tokens", str(gen_max_new_tokens)])
             optimized_params.extend(["--temperature", str(pipeline_defaults['temperature'])])
             optimized_params.extend(["--top_k", str(pipeline_defaults['top_k'])])
 

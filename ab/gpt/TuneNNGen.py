@@ -165,7 +165,9 @@ def main(num_train_epochs=NUM_TRAIN_EPOCHS, lr_scheduler=LR_SCHEDULER, max_grad_
          mobile_min_quantized_accuracy=None, mobile_max_duration_ms=None,
          mobile_score_tolerance=0.99, mobile_min_valid_models=5, mobile_delegate_priority="npu,gpu,cpu",
          # --- Corpus filters for the iterative pipeline's LEMUR curation ---
-         dataset=DEFAULT_DATASET, nn_prefixes=DEFAULT_NN_PREFIXES):
+         dataset=DEFAULT_DATASET, nn_prefixes=DEFAULT_NN_PREFIXES,
+         # Inner-generation output budget for the pipeline (None => pipeline default).
+         pipeline_max_new_tokens=None):
 
     persist_llm_conf(llm_conf, enable_merge)
 
@@ -195,6 +197,8 @@ def main(num_train_epochs=NUM_TRAIN_EPOCHS, lr_scheduler=LR_SCHEDULER, max_grad_
             num_train_epochs=num_train_epochs,
             dataset=dataset,
             nn_prefixes=nn_prefixes,
+            max_new_tokens=pipeline_max_new_tokens,
+            nn_gen_conf=nn_gen_conf,
         )
         if mobile_deployment:
             pipeline_kwargs["mobile_min_quantized_accuracy"] = mobile_min_quantized_accuracy
@@ -487,6 +491,11 @@ if __name__ == '__main__':
                         help='Run the full iterative fine-tuning pipeline instead of standalone fine-tuning')
 
     # Iterative pipeline-specific arguments (only used when --run_iterative_pipeline is set)
+    parser.add_argument("--pipeline_max_new_tokens", type=int, default=None,
+                        help="[Pipeline] Override the inner generation output budget (max_new_tokens). "
+                             "Set below the model's context window for short-context models "
+                             "(e.g. ~5000 for DeepSeek 8192, ~2500 for Mistral 4096). "
+                             "Unset uses the pipeline default (8192).")
     parser.add_argument("--base_data_dir", type=str, default=None,
                         help="[Pipeline] Path to original chat_data directory (required when --run_iterative_pipeline is set)")
     parser.add_argument("--output_dir", type=str, default="out/iterative_cycles",
