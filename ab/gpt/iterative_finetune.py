@@ -23,7 +23,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 from ab.gpt.iterative_pipeline.novelty_checker import NoveltyChecker
 from ab.gpt.iterative_pipeline.training_data_manager import TrainingDataManager
@@ -39,6 +39,7 @@ from ab.dup.preprocessing import curate_from_lemur
 from ab.chatprep.prompt_builder import ChatPrepConfig
 from ab.gpt.TuneNNGen import get_pipeline_defaults
 from ab.nn.util.Const import out_dir
+from ab.gpt.util.Const import nngpt_dir, new_nn_file, DEFAULT_DATASET, DEFAULT_NN_PREFIXES
 
 # Setup logging - will be configured after output_dir is known
 logger = logging.getLogger(__name__)
@@ -62,6 +63,8 @@ class IterativeFinetuner:
             max_retries: int = 3,
             use_optimized_training: bool = True,
             num_train_epochs: int = 5,
+            dataset: str = DEFAULT_DATASET,
+            nn_prefixes: Tuple[str, ...] = DEFAULT_NN_PREFIXES,
     ):
         self.output_dir = out_dir / 'curation_output'
         self.base_data_dir = self.output_dir / 'chat_data'
@@ -78,6 +81,9 @@ class IterativeFinetuner:
         self.max_retries = max_retries
         self.use_optimized_training = use_optimized_training
         self.num_train_epochs = num_train_epochs
+        # Corpus filters for LEMUR curation (default cifar-10 / ga-,GenFractalNet)
+        self.dataset = dataset
+        self.nn_prefixes = tuple(nn_prefixes)
 
         # Initialize components
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -194,7 +200,11 @@ class IterativeFinetuner:
         try:
             # Step 1: Curate from LEMUR
             logger.info("Step 1: Curating models from LEMUR...")
-            curate_result = curate_from_lemur(curation_output_dir)
+            curate_result = curate_from_lemur(
+                curation_output_dir,
+                dataset=self.dataset,
+                nn_prefixes=self.nn_prefixes,
+            )
             logger.info(f"✓ Curation from LEMUR completed: {curate_result}")
 
             # Step 2: Build chat data (ChatPrepConfig writes to curation_output by default)
@@ -310,24 +320,10 @@ class IterativeFinetuner:
                     "training_time_minutes": 0,
                 }
 
-        # Check if checkpoint already exists (from previous incomplete run)
-        isolated_checkpoint = self.output_dir / f"cycle_{cycle}" / "checkpoint"
-        if isolated_checkpoint.exists():
-            # Validate existing checkpoint
-            is_valid, msg = StageValidator.validate_finetuning_output(isolated_checkpoint)
-            if is_valid:
-                logger.info(f"✓ Existing checkpoint found and validated: {isolated_checkpoint}")
-                logger.info("Skipping fine-tuning (checkpoint already exists)")
-                return {
-                    "success": True,
-                    "checkpoint_dir": str(isolated_checkpoint),
-                    "training_time_minutes": 0.0,  # No time spent since we skipped
-                    "skipped": True,
-                }
-            else:
-                logger.warning(f"Existing checkpoint found but validation failed: {msg}")
-                logger.warning("Will re-run fine-tuning to create a new checkpoint")
-
+        # NOTE: resume/skip is now governed by run_cycle (which checks for both a
+        # valid checkpoint AND the subprocess's generation output), because this
+        # single subprocess now does generate + evaluate + SFT together. When
+        # run_finetuning is called, it always runs the subprocess.
         total, used, free = get_gpu_memory_info()
         logger.info(f"GPU memory before fine-tuning: {free:.2f}GB free / {total:.2f}GB total")
 
@@ -335,10 +331,41 @@ class IterativeFinetuner:
         ft_output_dir = self.output_dir / f"cycle_{cycle}" / "finetuning_output"
         ft_output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Clear the HF Trainer output dir (out/nngpt/outputs) before fine-tuning so
+        # stale checkpoints from a previous run/cycle cannot be mistaken for this
+        # cycle's output. TuneNNGen re-creates it. The previous cycle's adapter lives
+        # in the isolated cycle_<N-1>/checkpoint dir (passed via --peft), not here, so
+        # wiping this dir is safe for continual learning.
+        trainer_output_dir = nngpt_dir / 'outputs'
+        if trainer_output_dir.exists():
+            logger.info(f"Clearing stale trainer output dir before fine-tuning: {trainer_output_dir}")
+            shutil.rmtree(trainer_output_dir)
+
+        # One full pipeline cycle in a single subprocess via the proven Tune.py
+        # path. --num_cycles 1 bounds tune() to one epoch; --skip_epoches 0 makes
+        # that epoch run the whole loop: nn_gen (live LEMUR best-accuracy seeds)
+        # -> _evaluate_epoch (train each NN, record accuracy) -> _finetune_epoch.
+        # --data_dir makes SFT train on the pipeline's growing corpus (not LEMUR),
+        # closing the feedback loop. Generation/eval artifacts land under
+        # --epoch_root (cycle_N/generation/A0/synth_nn/B*) for run_cycle to read.
+        # --test_nn controls how many candidates are generated this cycle.
+        generation_dir = self.output_dir / f"cycle_{cycle}" / "generation"
+        generation_dir.mkdir(parents=True, exist_ok=True)
         cmd = [
             "python", "-m", "ab.gpt.TuneNNGen",
             "--llm_conf", self.llm_conf,
             "--data_dir", str(data_dir),
+            "--num_cycles", "1",
+            "--skip_epoches", "0",
+            "--epoch_root", str(generation_dir),
+            "--test_nn", str(self.models_per_cycle),
+            "--nn_train_epochs", "1",
+            # Force the classic tune() for-loop (single source of truth). Agent
+            # mode (use_agents defaults True) routes through the LangGraph
+            # StateGraph, whose generate_step hardcodes epoch_dir() and whose
+            # finetune node ignores data_dir — bypassing the --epoch_root and
+            # --data_dir wiring this pipeline depends on.
+            "--no-use_agents",
         ]
 
         # Load previous cycle's checkpoint for continual learning (cycle 2+)
@@ -394,21 +421,28 @@ class IterativeFinetuner:
         logger.info(f"Running fine-tuning: {' '.join(cmd)}")
         start_time = time.time()
 
+        # Capture stderr to a log file under the cycle directory so errors are
+        # inspectable even after the run (previously discarded to terminal scrollback).
+        stderr_log_path = self.output_dir / f"cycle_{cycle}" / "finetune_stderr.log"
+
         # Retry fine-tuning with exponential backoff
         def run_finetuning_cmd():
             # Clear GPU cache before each attempt
             clear_gpu_cache()
 
-            # Stream output in real-time while still capturing return code
-            result = subprocess.run(
-                cmd,
-                capture_output=False,  # Stream output to terminal in real-time
-                text=True,
-                check=False  # We'll check returncode manually
-            )
+            # Stream stdout in real-time; capture stderr to a log file so we
+            # actually see errors.
+            with open(stderr_log_path, "w") as stderr_log:
+                result = subprocess.run(
+                    cmd,
+                    stdout=None,        # Stream stdout to terminal in real-time
+                    stderr=stderr_log,  # Capture stderr to log under cycle dir
+                    text=True,
+                    check=False  # We'll check returncode manually
+                )
             if result.returncode != 0:
                 logger.error(f"Fine-tuning command failed with exit code {result.returncode}")
-                logger.error("Check terminal output above for error details")
+                logger.error(f"stderr captured at: {stderr_log_path}")
                 logger.error("Common issues:")
                 logger.error("  - CUDA out of memory: Free GPU memory or enable DeepSpeed")
                 logger.error("  - Training errors: Check training data and config")
@@ -448,11 +482,41 @@ class IterativeFinetuner:
         training_time = time.time() - start_time
         logger.info(f"Fine-tuning completed in {training_time / 60:.1f} minutes")
 
-        # Find the final checkpoint from fine-tuning
-        # TuneNNGen saves to out/qlora-sft/final, but we'll copy it to isolated directory
-        source_checkpoint = out_dir / 'qlora-sft/final'
-        if not source_checkpoint.exists():
-            logger.error(f"Checkpoint directory not found: {source_checkpoint}")
+        # Find the best checkpoint from fine-tuning.
+        # TuneNNGen sets TrainingArguments.output_dir = nngpt_dir/'outputs', where the HF
+        # Trainer writes checkpoint-<step>/ dirs plus trainer_state.json. With
+        # load_best_model_at_end, trainer_state.json records the best checkpoint in
+        # 'best_model_checkpoint' as an in-CONTAINER absolute path, so we use only its
+        # basename and re-root it under the local trainer output dir. Fall back to the
+        # newest checkpoint by mtime (NOT by step number: a reused output dir may hold
+        # higher-numbered stragglers from an earlier run).
+        trainer_output_dir = nngpt_dir / 'outputs'
+        state_file = trainer_output_dir / 'trainer_state.json'
+        source_checkpoint = None
+        if state_file.exists():
+            try:
+                best = json.load(open(state_file)).get('best_model_checkpoint')
+            except (ValueError, OSError) as e:
+                logger.warning(f"Could not read {state_file}: {e}")
+                best = None
+            if best:
+                candidate = trainer_output_dir / Path(best).name
+                if candidate.exists():
+                    source_checkpoint = candidate
+                    logger.info(f"Using best checkpoint from trainer_state.json: {source_checkpoint}")
+                else:
+                    logger.warning(f"best_model_checkpoint {best} recorded but not present at {candidate}")
+        if source_checkpoint is None:
+            checkpoints = sorted(
+                trainer_output_dir.glob('checkpoint-*'),
+                key=lambda p: p.stat().st_mtime,
+            )
+            if checkpoints:
+                source_checkpoint = checkpoints[-1]
+                logger.info(f"Falling back to newest checkpoint by mtime: {source_checkpoint}")
+
+        if source_checkpoint is None or not source_checkpoint.exists():
+            logger.error(f"No fine-tuning checkpoint found under {trainer_output_dir}")
             return {
                 "success": False,
                 "error": "checkpoint_not_found",
@@ -1077,6 +1141,10 @@ class IterativeFinetuner:
                 "accuracies": [],
             }
 
+        from ab.gpt.util.PostprocessNN import postprocess_directory
+        logger.info("Postprocessing generated models (in_shape, class name, learn, hyperparams)...")
+        postprocess_directory(accepted_code_dir)
+
         # Rank models by structural quality before evaluation
         logger.info("Ranking models by structural quality...")
         reranker = StructuralReranker()
@@ -1687,6 +1755,92 @@ class IterativeFinetuner:
             f.write(f"All results: {self.output_dir / 'all_cycles_results.json'}\n")
             f.write("\n" + "=" * 80 + "\n")
 
+    def _collect_subprocess_outputs(
+            self, cycle: int, starting_checksum: int = 0
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Read the candidates the subprocess produced (nn_gen + _evaluate_epoch)
+        from cycle_N/generation/A0/synth_nn/B*/ and shape them into the
+        (gen_result, eval_result) dicts that filter_successful_novel expects.
+
+        Per B{idx}: new_nn.py is the generated code; eval_info.json exists iff
+        that model evaluated successfully and holds accuracy at
+        eval_results.accuracy. A missing eval_info.json (or an error.txt) means
+        the candidate failed. Candidate index idx maps to model_id
+        gen_{starting_checksum + idx:04d}, and gen_result['results'] is dense and
+        position-aligned (results[i] describes B{i}) so filter_successful_novel's
+        enumerate() lines up with the eval model_ids.
+        """
+        synth = self.output_dir / f"cycle_{cycle}" / "generation" / "A0" / "synth_nn"
+        if not synth.exists():
+            logger.error(f"No generation output found under {synth}")
+            return ({"success": False, "error": "generation_output_not_found"},
+                    {"success": False, "models": []})
+
+        indexed: Dict[int, Path] = {}
+        for bdir in synth.glob("B*"):
+            try:
+                indexed[int(bdir.name[1:])] = bdir
+            except ValueError:
+                continue
+        if not indexed:
+            logger.error(f"No B* candidate directories under {synth}")
+            return ({"success": False, "error": "no_candidates"},
+                    {"success": False, "models": []})
+
+        results: List[Dict[str, Any]] = []
+        eval_models: List[Dict[str, Any]] = []
+        for i in range(max(indexed) + 1):
+            bdir = indexed.get(i)
+            code_path = (bdir / new_nn_file) if bdir else None
+            eval_info_path = (bdir / "eval_info.json") if bdir else None
+            has_code = bool(code_path and code_path.exists())
+            ok = bool(has_code and eval_info_path and eval_info_path.exists())
+            results.append({
+                "ok": ok,
+                "params": 0,
+                "file": str(code_path) if has_code else None,
+            })
+            if not ok:
+                continue
+            try:
+                info = json.loads(eval_info_path.read_text())
+                acc = info.get("eval_results", {}).get("accuracy")
+            except Exception as e:
+                logger.warning(f"B{i}: could not parse eval_info.json: {e}")
+                acc = None
+            if acc is None:
+                # Code + eval_info present but no accuracy -> treat as failed eval.
+                results[i]["ok"] = False
+                continue
+            eval_models.append({
+                "model_id": f"gen_{starting_checksum + i:04d}",
+                "success": True,
+                "accuracy": float(acc),
+                "code_file": str(code_path),
+            })
+
+        successful = len(eval_models)
+        logger.info(
+            f"Collected {len(results)} candidates from {synth}; "
+            f"{sum(1 for r in results if r['ok'])} with code+eval, "
+            f"{successful} with accuracy")
+
+        gen_result = {
+            "success": True,
+            "output_dir": str(synth.parent),
+            "total_generated": len(results),
+            "successful": sum(1 for r in results if r["ok"]),
+            "results": results,
+        }
+        eval_result = {
+            "success": True,
+            "models_trained": successful,
+            "models": eval_models,
+            "best_accuracy": max((m["accuracy"] for m in eval_models), default=0.0),
+            "avg_accuracy": (sum(m["accuracy"] for m in eval_models) / successful) if successful else 0.0,
+        }
+        return gen_result, eval_result
+
     def run_cycle(self, cycle: int) -> Dict[str, Any]:
         """Run a single fine-tuning cycle."""
         logger.info("")
@@ -1704,11 +1858,21 @@ class IterativeFinetuner:
         else:
             data_dir = self.data_manager.get_training_data_dir(cycle - 1, self.output_dir)
 
-        # Step 1: Fine-tune (skip if checkpoint exists)
+        # Steps 1-3 in ONE subprocess (the proven Tune.py path): run_finetuning
+        # now launches TuneNNGen with --skip_epoches 0, so the cycle does
+        # nn_gen -> _evaluate_epoch -> _finetune_epoch. SFT trains on the
+        # pipeline's growing corpus via --data_dir. We then READ the generated +
+        # evaluated candidates from the epoch dir instead of running our own
+        # generation/eval. Resume: skip the subprocess only if BOTH a valid
+        # checkpoint AND evaluated generation output already exist.
         checkpoint_path = self.output_dir / f"cycle_{cycle}" / "checkpoint"
-        if checkpoint_path.exists() and (checkpoint_path / "adapter_config.json").exists():
-            logger.info(f"✓ Existing checkpoint found: {checkpoint_path}")
-            logger.info("Skipping fine-tuning (checkpoint already exists)")
+        synth_dir = self.output_dir / f"cycle_{cycle}" / "generation" / "A0" / "synth_nn"
+        outputs_present = synth_dir.exists() and any(synth_dir.glob("B*/eval_info.json"))
+        if (checkpoint_path.exists()
+                and (checkpoint_path / "adapter_config.json").exists()
+                and outputs_present):
+            logger.info(f"✓ Cycle {cycle} outputs already present (checkpoint + evaluated generation)")
+            logger.info("Skipping subprocess (fine-tune + generate + evaluate)")
             ft_result = {"success": True, "checkpoint_dir": str(checkpoint_path)}
         else:
             ft_result = self.run_finetuning(cycle, data_dir)
@@ -1720,41 +1884,8 @@ class IterativeFinetuner:
                 }
             checkpoint_path = Path(ft_result["checkpoint_dir"])
 
-        # Step 2: Generate models (skip if generation results exist)
-        generation_dir = self.output_dir / f"cycle_{cycle}" / "generation"
-        results_file = generation_dir / "results.jsonl"
-        if results_file.exists() and (generation_dir / "accepted_code").exists():
-            logger.info(f"✓ Existing generation results found: {generation_dir}")
-            logger.info("Skipping generation (results already exist)")
-            # Load existing results
-            results = []
-            with open(results_file, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        try:
-                            results.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            pass
-            gen_result = {
-                "success": True,
-                "output_dir": str(generation_dir),
-                "total_generated": len(results),
-                "successful": len([r for r in results if r.get("ok", False)]),
-                "results": results,
-            }
-            logger.info(f"Loaded {len(results)} existing generation results")
-        else:
-            # Pass the same data_dir used for training so RAG examples match the training distribution
-            gen_result = self.generate_models(cycle, str(checkpoint_path), data_dir=Path(data_dir))
-            if not gen_result.get("success", False):
-                return {
-                    "cycle": cycle,
-                    "success": False,
-                    "error": gen_result.get("error", "unknown"),
-                }
-
-        # Step 3: Evaluate models
-        # Calculate starting checksum based on previous cycles
+        # Calculate starting checksum based on previous cycles (keeps model_id
+        # numbering globally unique across cycles for the novelty checker).
         starting_checksum = 0
         for prev_cycle in range(1, cycle):
             prev_results_file = self.output_dir / f"cycle_{prev_cycle}" / "cycle_results.json"
@@ -1766,8 +1897,34 @@ class IterativeFinetuner:
                 except Exception as e:
                     logger.warning(f"Could not read previous cycle results: {e}")
 
-        logger.info(f"Starting checksum for cycle {cycle} evaluation: {starting_checksum}")
-        eval_result = self.evaluate_models(cycle, Path(gen_result["output_dir"]), starting_checksum=starting_checksum)
+        logger.info(f"Starting checksum for cycle {cycle}: {starting_checksum}")
+
+        # Steps 2-3 as a READ of the subprocess's nn_gen + _evaluate_epoch output.
+        gen_result, eval_result = self._collect_subprocess_outputs(cycle, starting_checksum)
+        if not gen_result.get("success", False):
+            return {
+                "cycle": cycle,
+                "success": False,
+                "error": gen_result.get("error", "generation_output_not_found"),
+            }
+
+        # Persist cycle_N/evaluation_results.json — the output contract read by
+        # scripts/cycle_monitor.sh and the plotting scripts. Its previous writer
+        # (evaluate_models) was removed in this refactor, so run_cycle writes it
+        # now, keeping the same top-level shape those consumers expect.
+        total_evaluated = gen_result.get("total_generated", 0)
+        successful = eval_result.get("models_trained", 0)
+        eval_results_file = self.output_dir / f"cycle_{cycle}" / "evaluation_results.json"
+        eval_results_file.parent.mkdir(parents=True, exist_ok=True)
+        eval_results_file.write_text(json.dumps({
+            "cycle": cycle,
+            "total_evaluated": total_evaluated,
+            "successful": successful,
+            "failed": total_evaluated - successful,
+            "best_accuracy": eval_result.get("best_accuracy", 0.0),
+            "avg_accuracy": eval_result.get("avg_accuracy", 0.0),
+            "models": eval_result.get("models", []),
+        }, indent=2))
 
         # Step 4: Filter successful & novel models
         # Ensure gen_result has 'results' key - reload if missing (safety check for resume scenarios)

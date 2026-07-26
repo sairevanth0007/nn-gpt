@@ -42,10 +42,11 @@ from ab.gpt.util.Util import (
     extract_code,
     extract_hyperparam,
     extract_transform,
+    is_nn_model_code,
 )
 from ab.gpt.util.prompt.NNGenPrompt import NNGenPrompt
 from ab.gpt.util.DeltaUtil import apply_delta, validate_delta, repair_code
-from ab.gpt.util.Const import nngpt_upload
+from ab.gpt.util.Const import nngpt_upload, DEFAULT_DATASET, DEFAULT_NN_PREFIXES
 import ab.gpt.util.SFTUtil as SFTUtil
 from ab.gpt.brute.trans.TransformEval import run_eval
 from ab.gpt.util.prompt.TransformGenPrompt import TransformGenPrompt, load_data_from_folders
@@ -132,6 +133,12 @@ def nn_gen(
 
         num_joint_nns = key_config.get("num_joint_nns", 1)
         use_join = num_joint_nns >= 2
+        # Pin generation seeds to the configured LEMUR corpus so the LLM is
+        # conditioned on the intended architectures. Configurable via the
+        # prompt-config JSON; defaults to the shared DEFAULT_DATASET /
+        # DEFAULT_NN_PREFIXES (same corpus the pipeline curates) when unspecified.
+        gen_dataset = key_config.get("dataset", DEFAULT_DATASET)
+        gen_nn_prefixes = tuple(key_config.get("nn_prefixes") or DEFAULT_NN_PREFIXES)
         if use_join:
             from ab.nn.util.db.Query import JoinConf
             from ab.gpt.util.lemur_enrichment import patch_join_nn_query, enrich_dataframe
@@ -139,6 +146,8 @@ def nn_gen(
             data = lemur.data(
                 only_best_accuracy=True,
                 task=key_config["task"],
+                dataset=gen_dataset,
+                nn_prefixes=gen_nn_prefixes,
                 sql=JoinConf(
                     num_joint_nns=num_joint_nns,
                     same_columns=tuple(key_config.get("keep_same", [])),
@@ -155,6 +164,10 @@ def nn_gen(
                 data_kwargs["nn_prefixes"] = sft_nn_prefixes
             if use_backbone and sft_dataset:
                 data_kwargs["dataset"] = sft_dataset
+            if not use_backbone:
+                # Pin generation seeds to the configured corpus (default cifar-10 / ga-)
+                data_kwargs["dataset"] = gen_dataset
+                data_kwargs["nn_prefixes"] = gen_nn_prefixes
             data = lemur.data(**data_kwargs)
             if data.empty or "nn" not in data.columns:
                 raise ValueError(
@@ -313,6 +326,21 @@ def nn_gen(
 
             hp_str = extract_hyperparam(full_out)
             tr_str = extract_transform(full_out)
+
+            # Guard against NN-model code misrouted into the <tr> transform slot.
+            # The reference model in the prompt is shown in <tr>/<nn> tags and the
+            # LLM sometimes emits its full model inside <tr> (or echoes the
+            # reference), which extract_transform would otherwise save as tr.py and
+            # the model would never be evaluated. If the transform slot holds a
+            # full NN model, promote it to new_nn.py when we have no NN code yet,
+            # and never persist a model as a transform.
+            if tr_str and is_nn_model_code(tr_str):
+                print('[ROUTING] <tr> transform slot contains a full NN model.')
+                if not (code and code.strip()):
+                    repaired = repair_code(tr_str)
+                    code = repaired or tr_str
+                    print(f'[ROUTING] Promoted misrouted NN model from <tr> to new_nn.py for B{idx}')
+                tr_str = None
 
             try:
                 print(f'Generated params: {hp_str}')
@@ -672,6 +700,16 @@ def _evaluate_epoch(
 
     if exists(models_dir):
         release_memory()
+        # Repair generated models that almost follow the LEMUR interface (class
+        # rename to Net, in_shape unpack, F import, learn method, hyperparam strip)
+        # before evaluation so near-miss candidates are not lost.
+        if not trans_mode:
+            try:
+                from ab.gpt.util.PostprocessNN import postprocess_directory
+                postprocess_directory(models_dir)
+            except Exception as exc:
+                print(f'[WARN] postprocess_nn skipped: {exc}', flush=True)
+
         if classification_mode:
             from ab.gpt.ClassificationEval import evaluate_epoch as cls_eval
 
@@ -867,6 +905,7 @@ def _finetune_epoch(
     use_backbone=False,
     sft_nn_prefixes=None,
     sft_dataset=None,
+    data_dir=None,
 ):
     """
     Single source of truth for one finetune epoch.
@@ -895,7 +934,7 @@ def _finetune_epoch(
             else context_length if context_length
             else model_loader.get_max_length()
         )
-        data_processor = NNGenPrompt(length, tokenizer, train_config_path)
+        data_processor = NNGenPrompt(length, tokenizer, train_config_path, data_dir=data_dir)
 
     dataset = data_processor.get_dataset(
         only_best_accuracy,
@@ -1021,6 +1060,7 @@ def tune(
     only_best_accuracy=False,
     load_in_4bit=None,
     epoch_root=None,
+    data_dir=None,
 ):
     if not isinstance(conf_keys, (list, tuple)):
         conf_keys = (conf_keys,)
@@ -1195,5 +1235,6 @@ def tune(
             use_backbone=use_backbone,
             sft_nn_prefixes=sft_nn_prefixes,
             sft_dataset=sft_dataset,
+            data_dir=data_dir,
         )
         trainer_resume_checkpoint = None
