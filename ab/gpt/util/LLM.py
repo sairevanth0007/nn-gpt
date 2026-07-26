@@ -76,6 +76,12 @@ class LLM:
             # This is safer for LLaMA-like models (e.g., DeepSeek-Coder)
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.tokenizer.padding_side = "right"
+        # Respect the config's context_length so downstream generation (ChatBot)
+        # computes a correct input budget: max_input_len = model_max_length - max_new_tokens.
+        # Without this the tokenizer's default model_max_length (e.g. 4096 for DeepSeek)
+        # can equal max_new_tokens and starve the prompt to ~1 token -> newline-only output.
+        if self.context_length:
+            self.tokenizer.model_max_length = int(self.context_length)
         self._apply_chat_template_override()
 
         if tokenizer_exists:

@@ -3,7 +3,7 @@ from typing import Literal
 import sys
 
 import torch
-from ab.gpt.util.Const import nngpt_dir, NN_TRAIN_EPOCHS
+from ab.gpt.util.Const import nngpt_dir, NN_TRAIN_EPOCHS, DEFAULT_DATASET, DEFAULT_NN_PREFIXES
 
 from ab.nn.util.Const import out_dir
 
@@ -148,6 +148,7 @@ def main(num_train_epochs=NUM_TRAIN_EPOCHS, lr_scheduler=LR_SCHEDULER, max_grad_
          gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS, warmup_ratio=WARMUP_RATIO, logging_steps=LOGGING_STEPS, optimizer=OPTIMIZER,
          max_prompts=MAX_PROMPTS, save_llm_output=SAVE_LLM_OUTPUT, max_new_tokens=MAX_NEW_TOKENS, use_deepspeed=USE_DEEPSPEED, nn_name_prefix=NN_NAME_PREFIX,
          nn_train_epochs=NN_TRAIN_EPOCHS, temperature=TEMPERATURE, top_k=TOP_K, top_p=TOP_P, data_dir=None,base_data_dir=None,output_dir=None,
+         num_cycles=None, epoch_root=None,
          # Pipeline-specific overrides (for backward compatibility with iterative_finetune.py)
          evaluation_strategy=None, eval_steps=None, save_strategy=None, save_steps=None,
          save_total_limit=None, load_best_model_at_end=False, metric_for_best_model=None, warmup_steps=None, weight_decay=None,
@@ -162,7 +163,9 @@ def main(num_train_epochs=NUM_TRAIN_EPOCHS, lr_scheduler=LR_SCHEDULER, max_grad_
          only_best_accuracy=False, load_in_4bit=True,
          mobile_deployment=False, mobile_reval_only=False,
          mobile_min_quantized_accuracy=None, mobile_max_duration_ms=None,
-         mobile_score_tolerance=0.99, mobile_min_valid_models=5, mobile_delegate_priority="npu,gpu,cpu"):
+         mobile_score_tolerance=0.99, mobile_min_valid_models=5, mobile_delegate_priority="npu,gpu,cpu",
+         # --- Corpus filters for the iterative pipeline's LEMUR curation ---
+         dataset=DEFAULT_DATASET, nn_prefixes=DEFAULT_NN_PREFIXES):
 
     persist_llm_conf(llm_conf, enable_merge)
 
@@ -190,6 +193,8 @@ def main(num_train_epochs=NUM_TRAIN_EPOCHS, lr_scheduler=LR_SCHEDULER, max_grad_
             max_retries=max_retries,
             use_optimized_training=use_optimized_training,
             num_train_epochs=num_train_epochs,
+            dataset=dataset,
+            nn_prefixes=nn_prefixes,
         )
         if mobile_deployment:
             pipeline_kwargs["mobile_min_quantized_accuracy"] = mobile_min_quantized_accuracy
@@ -218,6 +223,36 @@ def main(num_train_epochs=NUM_TRAIN_EPOCHS, lr_scheduler=LR_SCHEDULER, max_grad_
             UNSLOTH_AVAILABLE = True
         except ImportError:
             print("[WARN] Unsloth requested but not installed. Falling back to standard PEFT.")
+
+    # Guard against broken flash_attn binary in the K8s image
+    import sys, types
+    try:
+        from flash_attn import flash_attn_func
+    except (ImportError, OSError):
+        import importlib.machinery
+        _fa = types.ModuleType("flash_attn")
+        _fa.__spec__ = importlib.machinery.ModuleSpec("flash_attn", None)
+        _fa.__version__ = "0.0.0"
+        _fa.flash_attn_func = None
+        _fa.flash_attn_varlen_func = None
+        _fa.flash_attn_with_kvcache = None
+        sys.modules["flash_attn"] = _fa
+        _bp = types.ModuleType("flash_attn.bert_padding")
+        _bp.index_first_axis = lambda x, i: x[i]
+        _bp.pad_input = lambda *a, **k: None
+        _bp.unpad_input = lambda *a, **k: (None, None, None, None)
+        sys.modules["flash_attn.bert_padding"] = _bp
+        sys.modules["flash_attn.layers"] = types.ModuleType("flash_attn.layers")
+        _rot = types.ModuleType("flash_attn.layers.rotary")
+        _rot.apply_rotary_emb = lambda *a, **k: a[0]
+        sys.modules["flash_attn.layers.rotary"] = _rot
+
+    # Guard against torchvision::nms operator mismatch (torch version in user site
+    # doesn't match torchvision in venv)
+    try:
+        import torchvision
+    except (ImportError, RuntimeError):
+        pass  # torchvision not needed for fine-tuning, ignore if broken
 
     from peft import LoraConfig
     from transformers import TrainingArguments
@@ -379,6 +414,9 @@ use_backbone={use_backbone}, enable_merge={enable_merge}, classification_mode={c
             max_input_length=max_input_length,
             only_best_accuracy=only_best_accuracy,
             load_in_4bit=load_in_4bit,
+            num_cycles=num_cycles,
+            data_dir=data_dir,
+            epoch_root=epoch_root,
         )
 
         # Normal completion - auto merge best
@@ -549,6 +587,9 @@ if __name__ == '__main__':
     parser.add_argument('--peft', type=str, default=None, help='Path to saved LoRA layers.')
     parser.add_argument("--data_dir", type=str, default=None,
                         help="Folder with train.jsonl/dev.jsonl/test.jsonl (produced by chat prep).")
+    parser.add_argument("--epoch_root", type=str, default=None,
+                        help="Root dir for per-epoch generation/eval artifacts (A{n}/synth_nn/...). "
+                             "Defaults to the standard epoch_dir() when unset.")
     parser.add_argument('--nn_name_prefix', type=str, default=NN_NAME_PREFIX,
                         help=f'NN name prefix (default: {NN_NAME_PREFIX}).')
     parser.add_argument('--temperature', type=float, default=TEMPERATURE,
@@ -616,6 +657,13 @@ if __name__ == '__main__':
                         help='[Mobile Pipeline] Minimum valid mobile-scored models required to accept cycle (default: 5).')
     parser.add_argument('--mobile_delegate_priority', type=str, default='npu,gpu,cpu',
                         help='[Mobile Pipeline] Tie-break delegate priority for equal scores (default: npu,gpu,cpu).')
+
+    # Corpus filters for the iterative pipeline's LEMUR curation
+    parser.add_argument('--dataset', type=str, default=DEFAULT_DATASET,
+                        help=f"[Pipeline] LEMUR dataset to curate the training corpus from (default: {DEFAULT_DATASET}).")
+    parser.add_argument('--nn_prefixes', type=lambda s: tuple(p for p in s.split(',') if p),
+                        default=DEFAULT_NN_PREFIXES,
+                        help=f"[Pipeline] Comma-separated NN name prefixes to curate (default: {','.join(DEFAULT_NN_PREFIXES)}).")
 
     args = parser.parse_args()
 
