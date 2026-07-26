@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from ab.nn.util.db.Query import JoinConf
 from ab.gpt.util.Util import evaluate_delimited_formulas
+from ab.gpt.util.Const import DEFAULT_DATASET, DEFAULT_NN_PREFIXES
 
 
 def shuffle_data(df: DataFrame):
@@ -125,8 +126,8 @@ class NNGenPrompt(Prompt):
                 data = lemur.data(
                     only_best_accuracy=only_best_accuracy,
                     task=key_dict.get('task'),
-                    dataset=key_dict.get('dataset', 'cifar-10'),
-                    nn_prefixes=tuple(key_dict.get('nn_prefixes') or ('ga-',)),
+                    dataset=key_dict.get('dataset', DEFAULT_DATASET),
+                    nn_prefixes=tuple(key_dict.get('nn_prefixes') or DEFAULT_NN_PREFIXES),
                     max_rows=n_training_prompts,
                     sql=None if not use_join else JoinConf(
                         num_joint_nns=num_joint_nns,

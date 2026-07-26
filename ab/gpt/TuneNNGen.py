@@ -3,7 +3,7 @@ from typing import Literal
 import sys
 
 import torch
-from ab.gpt.util.Const import nngpt_dir, NN_TRAIN_EPOCHS
+from ab.gpt.util.Const import nngpt_dir, NN_TRAIN_EPOCHS, DEFAULT_DATASET, DEFAULT_NN_PREFIXES
 
 from ab.nn.util.Const import out_dir
 
@@ -165,7 +165,7 @@ def main(num_train_epochs=NUM_TRAIN_EPOCHS, lr_scheduler=LR_SCHEDULER, max_grad_
          mobile_min_quantized_accuracy=None, mobile_max_duration_ms=None,
          mobile_score_tolerance=0.99, mobile_min_valid_models=5, mobile_delegate_priority="npu,gpu,cpu",
          # --- Corpus filters for the iterative pipeline's LEMUR curation ---
-         dataset="cifar-10", nn_prefixes=("ga-", "GenFractalNet")):
+         dataset=DEFAULT_DATASET, nn_prefixes=DEFAULT_NN_PREFIXES):
 
     persist_llm_conf(llm_conf, enable_merge)
 
@@ -659,11 +659,11 @@ if __name__ == '__main__':
                         help='[Mobile Pipeline] Tie-break delegate priority for equal scores (default: npu,gpu,cpu).')
 
     # Corpus filters for the iterative pipeline's LEMUR curation
-    parser.add_argument('--dataset', type=str, default='cifar-10',
-                        help="[Pipeline] LEMUR dataset to curate the training corpus from (default: cifar-10).")
+    parser.add_argument('--dataset', type=str, default=DEFAULT_DATASET,
+                        help=f"[Pipeline] LEMUR dataset to curate the training corpus from (default: {DEFAULT_DATASET}).")
     parser.add_argument('--nn_prefixes', type=lambda s: tuple(p for p in s.split(',') if p),
-                        default=('ga-', 'GenFractalNet'),
-                        help="[Pipeline] Comma-separated NN name prefixes to curate (default: ga-,GenFractalNet).")
+                        default=DEFAULT_NN_PREFIXES,
+                        help=f"[Pipeline] Comma-separated NN name prefixes to curate (default: {','.join(DEFAULT_NN_PREFIXES)}).")
 
     args = parser.parse_args()
 

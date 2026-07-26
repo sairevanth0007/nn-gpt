@@ -39,7 +39,7 @@ from ab.dup.preprocessing import curate_from_lemur
 from ab.chatprep.prompt_builder import ChatPrepConfig
 from ab.gpt.TuneNNGen import get_pipeline_defaults
 from ab.nn.util.Const import out_dir
-from ab.gpt.util.Const import nngpt_dir, new_nn_file
+from ab.gpt.util.Const import nngpt_dir, new_nn_file, DEFAULT_DATASET, DEFAULT_NN_PREFIXES
 
 # Setup logging - will be configured after output_dir is known
 logger = logging.getLogger(__name__)
@@ -63,8 +63,8 @@ class IterativeFinetuner:
             max_retries: int = 3,
             use_optimized_training: bool = True,
             num_train_epochs: int = 5,
-            dataset: str = 'cifar-10',
-            nn_prefixes: Tuple[str, ...] = ('ga-', 'GenFractalNet'),
+            dataset: str = DEFAULT_DATASET,
+            nn_prefixes: Tuple[str, ...] = DEFAULT_NN_PREFIXES,
     ):
         self.output_dir = out_dir / 'curation_output'
         self.base_data_dir = self.output_dir / 'chat_data'

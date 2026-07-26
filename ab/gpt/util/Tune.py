@@ -46,7 +46,7 @@ from ab.gpt.util.Util import (
 )
 from ab.gpt.util.prompt.NNGenPrompt import NNGenPrompt
 from ab.gpt.util.DeltaUtil import apply_delta, validate_delta, repair_code
-from ab.gpt.util.Const import nngpt_upload
+from ab.gpt.util.Const import nngpt_upload, DEFAULT_DATASET, DEFAULT_NN_PREFIXES
 import ab.gpt.util.SFTUtil as SFTUtil
 from ab.gpt.brute.trans.TransformEval import run_eval
 from ab.gpt.util.prompt.TransformGenPrompt import TransformGenPrompt, load_data_from_folders
@@ -133,11 +133,12 @@ def nn_gen(
 
         num_joint_nns = key_config.get("num_joint_nns", 1)
         use_join = num_joint_nns >= 2
-        # Pin generation seeds to cifar-10 ga- models so the LLM is conditioned on
-        # the intended corpus. Configurable via the prompt-config JSON, defaults
-        # to the cifar-10 / ga- corpus when unspecified.
-        gen_dataset = key_config.get("dataset", "cifar-10")
-        gen_nn_prefixes = tuple(key_config.get("nn_prefixes") or ("ga-",))
+        # Pin generation seeds to the configured LEMUR corpus so the LLM is
+        # conditioned on the intended architectures. Configurable via the
+        # prompt-config JSON; defaults to the shared DEFAULT_DATASET /
+        # DEFAULT_NN_PREFIXES (same corpus the pipeline curates) when unspecified.
+        gen_dataset = key_config.get("dataset", DEFAULT_DATASET)
+        gen_nn_prefixes = tuple(key_config.get("nn_prefixes") or DEFAULT_NN_PREFIXES)
         if use_join:
             from ab.nn.util.db.Query import JoinConf
             from ab.gpt.util.lemur_enrichment import patch_join_nn_query, enrich_dataframe
