@@ -229,15 +229,19 @@ class LoRA:
                 # TRL's DataCollatorForLanguageModeling uses pad_token_id and completion_only_loss
                 pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
                 collator = DataCollatorForLanguageModeling(
-                    tokenizer=self.tokenizer,
-                    mlm=False
+                    pad_token_id=pad_token_id,
+                    completion_only_loss=train_on_completions_only if train_on_completions_only else True,
+                    pad_to_multiple_of=8,
+                    return_tensors="pt"
                 )
         else:
             # TRL's DataCollatorForLanguageModeling uses pad_token_id
             pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
             collator = DataCollatorForLanguageModeling(
-                tokenizer=self.tokenizer,
-                mlm=False
+                pad_token_id=pad_token_id,
+                completion_only_loss=True,
+                pad_to_multiple_of=8,
+                return_tensors="pt"
             )
 
         # Use SFTTrainer for pre-rendered text or prompt/completion pairs.
