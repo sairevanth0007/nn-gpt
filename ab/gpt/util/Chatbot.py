@@ -206,12 +206,6 @@ class ChatBot:
             print(f'[vocab_bound] WARNING: patch failed ({type(e).__name__}: {e}); '
                   f'run continues unchanged.', flush=True)
 
-    MAX_NEW_TOKENS_CAP = 4096
-
-    def _capped_new_tokens(self, max_new_tokens):
-        """Clamp the requested new-token budget to MAX_NEW_TOKENS_CAP (default 4096)."""
-        return min(max_new_tokens or self.MAX_NEW_TOKENS_CAP, self.MAX_NEW_TOKENS_CAP)
-
     def _eos_token_ids(self):
         """eos id(s) for generation, always including <|im_end|> when the tokenizer knows it."""
         eos = self.tokenizer.eos_token_id
@@ -255,7 +249,7 @@ class ChatBot:
 
         formatted_prompts = [self._prepare_pipeline_input(p) for p in prompts]
         tokenizer_max_len = _safe_tokenizer_max_length(self.tokenizer)
-        token_budget = self._capped_new_tokens(max_new_tokens)
+        token_budget = max_new_tokens or 4096
         max_input_len = max(1, tokenizer_max_len - token_budget)
 
         original_padding_side = getattr(self.tokenizer, "padding_side", "right")
@@ -298,7 +292,7 @@ class ChatBot:
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
-                max_new_tokens=self._capped_new_tokens(max_new_tokens),
+                max_new_tokens=max_new_tokens or 4096,
                 max_length=max_len,
                 do_sample=True,
                 temperature=self.temperature,
@@ -338,7 +332,7 @@ class ChatBot:
         if self.__pipeline is not None:
             try:
                 generation_kwargs = {
-                    "max_new_tokens": self._capped_new_tokens(max_new_tokens),
+                    "max_new_tokens": max_new_tokens or 4096,
                     "do_sample": True,
                     "max_length": max_len,
                     "temperature": self.temperature,
@@ -407,7 +401,7 @@ class ChatBot:
                 formatted_prompt = f"{formatted_prompt}\nAssistant:"
             
             tokenizer_max_len = _safe_tokenizer_max_length(self.tokenizer)
-            token_budget = self._capped_new_tokens(max_new_tokens)
+            token_budget = max_new_tokens or 4096
             max_input_len = max(1, tokenizer_max_len - token_budget)
 
             # Tokenize input
@@ -463,7 +457,7 @@ class ChatBot:
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
-                    max_new_tokens=self._capped_new_tokens(max_new_tokens),
+                    max_new_tokens=max_new_tokens or 4096,
                     max_length=max_len,
                     do_sample=True,
                     temperature=self.temperature,
