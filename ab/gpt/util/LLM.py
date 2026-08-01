@@ -80,7 +80,10 @@ class LLM:
         # computes a correct input budget: max_input_len = model_max_length - max_new_tokens.
         # Without this the tokenizer's default model_max_length (e.g. 4096 for DeepSeek)
         # can equal max_new_tokens and starve the prompt to ~1 token -> newline-only output.
-        if self.context_length:
+        # Only RAISE model_max_length, never lower it: forcing it down (e.g. OlympicCoder
+        # 32768 -> 8192) combined with the max_new_tokens cap truncates the prompt to
+        # almost nothing, so the model ignores the NN task. Raising still fixes DeepSeek.
+        if self.context_length and int(self.context_length) > self.tokenizer.model_max_length:
             self.tokenizer.model_max_length = int(self.context_length)
         self._apply_chat_template_override()
 
