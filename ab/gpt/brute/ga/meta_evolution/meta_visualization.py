@@ -1,5 +1,5 @@
 """
-visualize_meta_generation.py
+meta_visualization.py
 ---------------------
 Generates and saves plots for:
   1. GA evolution progress  (from stats/ JSON files)
@@ -17,7 +17,7 @@ Output is saved into a timestamped folder:
           score_improvement.png
 
 Usage:
-    python3 visualize_meta_generation.py
+    python3 meta_visualization.py
 """
 
 import os
@@ -669,7 +669,7 @@ def main(target_ts=None, target_dataset=None):
     os.makedirs(ft_dir, exist_ok=True)
 
     print(f"\n{'='*60}")
-    print(f"  visualize_meta_generation.py — run: {timestamp}")
+    print(f"  meta_visualization.py — run: {timestamp}")
     print(f"  Output root: {os.path.relpath(run_dir, BASE_DIR)}")
     print(f"{'='*60}\n")
 

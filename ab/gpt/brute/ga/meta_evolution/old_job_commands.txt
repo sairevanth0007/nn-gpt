@@ -1,6 +1,0 @@
-Old command for CIFAR-10:
-cd /a/mm && pip install "torchao==0.15.0" git+https://github.com/ABrain-One/nn-dataset --upgrade --extra-index-url https://download.pytorch.org/whl/cu126 && export PYTHONPATH=/a/mm && site_pkg=$(python3 -c 'import site; print(site.getusersitepackages())') && mkdir -p /a/mm/ab/nn && cp -rn $site_pkg/ab/nn/* /a/mm/ab/nn/ || true && export RUN_TS=$(date +%Y-%m-%d_%H-%M-%S) && mkdir -p /a/mm/ab/gpt/brute/ga/meta_evolution/logs && python3 -u -m ab.gpt.brute.ga.meta_evolution.meta_evolver 2>&1 | tee /a/mm/ab/gpt/brute/ga/meta_evolution/logs/pod_${RUN_TS}.log
-
-
-Old command for CIFAR-100:
-cd /a/mm && pip install "torchao==0.15.0" git+https://github.com/ABrain-One/nn-dataset --upgrade --extra-index-url https://download.pytorch.org/whl/cu126 && export PYTHONPATH=/a/mm && site_pkg=$(python3 -c 'import site; print(site.getusersitepackages())') && mkdir -p /a/mm/ab/nn && cp -rn $site_pkg/ab/nn/* /a/mm/ab/nn/ || true && export RUN_TS=$(date +%Y-%m-%d_%H-%M-%S) && mkdir -p /a/mm/ab/gpt/brute/ga/meta_evolution/logs_cifar100 && python3 -u -m ab.gpt.brute.ga.meta_evolution.meta_evolver_cifar100 2>&1 | tee /a/mm/ab/gpt/brute/ga/meta_evolution/logs_cifar100/pod_${RUN_TS}.log

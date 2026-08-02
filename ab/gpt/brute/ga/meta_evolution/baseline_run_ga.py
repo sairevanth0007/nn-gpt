@@ -51,53 +51,21 @@ logging.basicConfig(level=logging.INFO, format='%(message)s', force=True)
 
 # --- PATH SETUP ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PIPELINE_DIR = os.environ.get("PIPELINE_DIR", BASE_DIR)
+DATASET = os.environ.get("DATASET", "cifar10")
+DATASET_DASH = "cifar-100" if DATASET == "cifar100" else "cifar-10"
+
 # This is the folder where unique fractal models will be saved
-ARCH_DIR = os.path.join(BASE_DIR, 'baseline_ga_fractal_arch_imagenet100') 
-STATS_DIR = os.path.join(BASE_DIR, 'baseline_statsimagenet100')
-# CHECKPOINT = 'fractal_ga_ckpt.pkl'
-# CHECKPOINT = os.path.join(BASE_DIR, 'baseline_ga_ckpt.pkl')
-CHECKPOINT = os.path.join(BASE_DIR, 'GenFractal_baseline_imagenet100_ckpt.pkl')
-BEST_STATS_DIR = os.path.join(BASE_DIR, 'best_baseline_statsimagenet100')
+ARCH_DIR = os.path.join(PIPELINE_DIR, 'architectures') 
+STATS_DIR = os.path.join(PIPELINE_DIR, 'stats')
+CHECKPOINT = os.path.join(PIPELINE_DIR, f'fractal_baseline_save_point_{DATASET}.pkl')
+BEST_STATS_DIR = os.path.join(PIPELINE_DIR, f'best_baseline_stats_{DATASET}')
 
 os.makedirs(ARCH_DIR, exist_ok=True)
 os.makedirs(STATS_DIR, exist_ok=True)
 
 # seen_checksums = set()
 fitness_cache = {}
-archive = {}
-
-import copy
-import random
-import numpy as np
-
-def coerce_gene_value(gene_name, value, search_space):
-    """Snap out-of-bounds gene values to nearest valid option."""
-    valid_values = search_space.get(gene_name)
-    if not valid_values:
-        return value
-    if value in valid_values:
-        return value
-    exemplar = valid_values[0]
-    if isinstance(exemplar, (int, float, np.integer, np.floating)) and isinstance(
-        value, (int, float, np.integer, np.floating)
-    ):
-        return min(valid_values, key=lambda candidate: abs(float(candidate) - float(value)))
-    return random.choice(valid_values)
-
-def sanitize_chromosome(chromosome, search_space):
-    """Ensure all gene values are within the search space."""
-    sanitized = chromosome.copy()
-    for gene_name in search_space:
-        if gene_name in sanitized:
-            sanitized[gene_name] = coerce_gene_value(gene_name, sanitized[gene_name], search_space)
-    return sanitized
-
-def update_archive(individual, search_space):
-    """Update the MAP-Elites archive with the individual if it's the best for its cell."""
-    cell = (individual['chromosome'].get('n_blocks', 1), individual['chromosome'].get('base_channels', 16))
-    if cell not in archive or individual['fitness'] > archive[cell]['fitness']:
-        archive[cell] = copy.deepcopy(individual)
-        print(f"  [Archive] Cell {cell} updated with fitness: {individual['fitness']:.4f}")
 
 def _log_eval(checksum, accuracy, is_cached):
     if float(accuracy) <= 0.0:
@@ -120,8 +88,7 @@ def _log_eval(checksum, accuracy, is_cached):
 def _load_existing_checksums():
     """Scan baseline_stats/ directory for previously evaluated models and cache their fitness."""
     count = 0
-    # prefix = "img-classification_cifar_GenFractalNet-"   # BUG: missing '-10', never matched any folder
-    prefix = "img-classification_imagenet-100_GenFractalNet-"
+    prefix = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-"
     if os.path.isdir(STATS_DIR):
         for name in os.listdir(STATS_DIR):
             if name.startswith(prefix):
@@ -138,6 +105,8 @@ def _load_existing_checksums():
                     try:
                         with open(json_path) as f:
                             data = json.load(f)
+                        if isinstance(data, list) and len(data) > 0:
+                            data = data[-1]
                         hp = data.get('hyperparameters', {})
                         ts = data.get('training_summary', {})
                         for src, key in [
@@ -170,7 +139,7 @@ def _lookup_stored_fitness(checksum: str) -> float:
     from the baseline_stats/ folder instead of returning 0.0.
     Returns fitness as a percentage (e.g. 54.69), or 0.0 if the file is missing/unreadable.
     """
-    stats_dir_name = f"img-classification_imagenet-100_GenFractalNet-{checksum}"
+    stats_dir_name = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-{checksum}"
     stats_dir_path = os.path.join(STATS_DIR, stats_dir_name)
     if not os.path.isdir(stats_dir_path):
         print(f"  - Duplicate: no stored stats found for {checksum[:8]}, returning 0.0")
@@ -189,6 +158,8 @@ def _lookup_stored_fitness(checksum: str) -> float:
     try:
         with open(json_path) as f:
             data = json.load(f)
+        if isinstance(data, list) and len(data) > 0:
+            data = data[-1]
     except Exception as e:
         print(f"  - Duplicate: could not read stats for {checksum[:8]}: {e}")
         return 0.0
@@ -259,9 +230,7 @@ def fitness_function(chromosome: dict) -> float:
             'batch': 64,  # Increased from 32: more signal per step, avoids AccuracyException floor
             'epoch': 1,   # Short epochs for Meta-Evaluation
             'transform': "norm_32_flip",  # Native CIFAR-10 resolution (was 256 → massive slowdown)
-            # 'max_batches': None,  # None = full dataset (782 batches), or set int for proxy eval (e.g. 200)
-            'max_batches': 400,  # Proxy evaluation (~5x speedup for ImageNet-100)
-            'num_workers': 8,
+            'max_batches': None,  # None = full dataset (782 batches), or set int for proxy eval (e.g. 200)
         }
 
         # --- FIX: Delete stale training_summary.json before eval so it
@@ -278,7 +247,7 @@ def fitness_function(chromosome: dict) -> float:
         evaluator = Eval(
             model_source_package=ARCH_DIR,
             task='img-classification',
-            dataset='imagenet100',
+            dataset=DATASET_DASH,
             metric='acc',
             prm=eval_prm,
             save_to_db=False,
@@ -323,7 +292,7 @@ def fitness_function(chromosome: dict) -> float:
                 full_res = {
                     'config': {
                         'task': 'img-classification',
-                        'dataset': 'imagenet100',
+                        'dataset': DATASET_DASH,
                         'metric': 'acc',
                         'model': model_name
                     },
@@ -340,7 +309,7 @@ def fitness_function(chromosome: dict) -> float:
         
         # Save exact requested stats format to a JSON folder structure
         # One JSON file per epoch: 1.json, 2.json, ..., N.json
-        model_stats_dir_name = f"img-classification_imagenet-100_GenFractalNet-{model_checksum}"
+        model_stats_dir_name = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-{model_checksum}"
         model_stats_dir_path = os.path.join(STATS_DIR, model_stats_dir_name)
         os.makedirs(model_stats_dir_path, exist_ok=True)
 
@@ -355,7 +324,7 @@ def fitness_function(chromosome: dict) -> float:
                 ep_res['uid'] = model_checksum
                 stat_file = os.path.join(model_stats_dir_path, f"{ep_num}.json")
                 with open(stat_file, 'w') as sf:
-                    json.dump(ep_res, sf, indent=4)
+                    json.dump([ep_res], sf, indent=4)
             print(f"  - Saved {len(epoch_details)} epoch JSON file(s) to: {model_stats_dir_path}")
         else:
             # Fallback: save single file named after total epochs
@@ -366,7 +335,7 @@ def fitness_function(chromosome: dict) -> float:
                 max_epochs = full_res['training_summary']['total_epochs']
             stat_file = os.path.join(model_stats_dir_path, f"{max_epochs}.json")
             with open(stat_file, 'w') as sf:
-                json.dump(full_res, sf, indent=4)
+                json.dump([full_res], sf, indent=4)
             print(f"  - Saved stats (fallback) to: {stat_file}")
 
         # --- Verify at least one stats JSON was written before persisting model ---
@@ -445,7 +414,7 @@ def fitness_function(chromosome: dict) -> float:
                 print(f"  - Cleaned up partial stats: {model_stats_dir_path}")
         except Exception as cleanup_err:
             print(f"  - Warning: cleanup failed: {cleanup_err}")
-            
+        
         # Log the failure entry to ga_evaluations
         _log_eval(model_checksum, 0.0, False)
         return 0.0
@@ -464,9 +433,9 @@ if __name__ == "__main__":
     if not os.environ.get("GA_EVAL_LOG"):
         _standalone_mode = True
         run_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        logs_dir = os.path.join(BASE_DIR, "logs")
+        logs_dir = os.path.join(PIPELINE_DIR, f"logs_{DATASET}", "Baseline")
         os.makedirs(logs_dir, exist_ok=True)
-        os.environ["GA_EVAL_LOG"] = os.path.join(logs_dir, f"baseline_evaluations_imagenet100_{run_ts}.jsonl")
+        os.environ["GA_EVAL_LOG"] = os.path.join(logs_dir, f"baseline_evaluations_{DATASET}_{run_ts}.jsonl")
         print(f"[LOG] Baseline GA eval log: {os.environ['GA_EVAL_LOG']}")
 
     if args.clean and os.path.exists(CHECKPOINT):
@@ -486,28 +455,19 @@ if __name__ == "__main__":
         start_gen, _ = ga._load_checkpoint()
         target_gens = start_gen + args.gens
         print(f"[Run] Continuing evolution from gen {start_gen} to {target_gens}")
-        
-        def fitness_with_archive(chromosome):
-            sanitized = sanitize_chromosome(chromosome, SEARCH_SPACE)
-            chromosome.update(sanitized)  # Fix in-place so GA sees clean values
-            fitness = fitness_function(chromosome)
-            # Update archive after evaluation
-            update_archive({'chromosome': chromosome, 'fitness': fitness}, SEARCH_SPACE)
-            return fitness
-
-        best, history = ga.run(target_gens, fitness_with_archive)
+        best, history = ga.run(target_gens, fitness_function)
         
         # Save Best Architecture
         if best:
              best_code = generate_model_code_string(best['chromosome'])
-             best_path = os.path.join(BASE_DIR, "best_baseline_model_imagenet100.py")
+             best_path = os.path.join(PIPELINE_DIR, f"best_fractal_baseline_{DATASET}.py")
              with open(best_path, "w") as f:
                  f.write(best_code)
              print(f"[Best] Saved best model to {best_path}")
 
              # Copy Winning Stats
              best_checksum = uuid4(best_code)
-             best_folder_name = f"img-classification_imagenet-100_GenFractalNet-{best_checksum}"
+             best_folder_name = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-{best_checksum}"
              src_stats_path = os.path.join(STATS_DIR, best_folder_name)
              dst_stats_path = os.path.join(BEST_STATS_DIR, best_folder_name)
 
@@ -530,7 +490,7 @@ if __name__ == "__main__":
                  print(f"[Best] Warning: stats folder not found for checksum {best_checksum[:8]}")
 
              # Save Best Info Metadata
-             info_path = os.path.join(BASE_DIR, "best_baseline_info_imagenet100.json")
+             info_path = os.path.join(PIPELINE_DIR, f"best_baseline_info_{DATASET}.json")
              best_info = {
                  "timestamp": datetime.now().isoformat(),
                  "checksum": best_checksum,
@@ -553,7 +513,8 @@ if __name__ == "__main__":
             else:
                 top3_mean = peak
                 
-            archive_size = len(archive)
+            # archive_size = len(ga.archive)
+            archive_size = len(getattr(ga, 'archive', ga.population))
         else:
             top3_mean = 0.0
             peak = 0.0
@@ -571,9 +532,9 @@ if __name__ == "__main__":
             "fitness_history": history,
             "total_generations": target_gens
         }
-        with open(os.path.join(BASE_DIR, "baseline_results_imagenet100.json"), "w") as f:
+        with open(os.path.join(PIPELINE_DIR, f"baseline_results_{DATASET}.json"), "w") as f:
             json.dump(trajectory, f, indent=4)
-        print(f"[Run] Saved baseline trajectory to baseline_results_imagenet100.json")
+        print(f"[Run] Saved baseline trajectory to baseline_results_{DATASET}.json")
 
     except Exception as e:
         import traceback
@@ -586,8 +547,9 @@ if __name__ == "__main__":
     # (meta_evolver.py handles its own visualization at the end)
     if _standalone_mode:
         try:
-            from ab.gpt.brute.ga.meta_evolution.visualize_baseline_generations import main as generate_plots
+            from ab.gpt.brute.ga.meta_evolution.baseline_visualization import main as generate_plots
             print("\n=== Generating Visualizations ===")
-            generate_plots()
+            # generate_plots()
+            generate_plots(dataset=DATASET)
         except Exception as e:
             print(f"[WARN] Visualization failed (non-fatal): {e}")

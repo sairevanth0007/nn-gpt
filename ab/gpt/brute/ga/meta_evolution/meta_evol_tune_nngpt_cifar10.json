@@ -2,7 +2,7 @@
   "apiVersion": "batch/v1",
   "kind": "Job",
   "metadata": {
-    "name": "nngpt-fractal-meta-evo-clone4-imagenet100"
+    "name": "nngpt-fractal-meta-evo-clonescience-cifar10"
   },
   "spec": {
     "parallelism": 1,
@@ -25,9 +25,13 @@
               "-c"
             ],
             "args": [
-              "cd /a/mm && (pip uninstall -y flash-attn || true) && pip install \"torchao==0.15.0\" kagglehub --upgrade --extra-index-url https://download.pytorch.org/whl/cu126 && pip install git+https://github.com/ABrain-One/nn-dataset --no-deps --upgrade && export PYTHONPATH=/a/mm && site_pkg=$(python3 -c 'import site; print(site.getusersitepackages())') && mkdir -p /a/mm/ab/nn && cp -r --update=none $site_pkg/ab/nn/* /a/mm/ab/nn/ || true && export RUN_TS=$(date +%Y-%m-%d_%H-%M-%S) && export DATASET=imagenet100 && mkdir -p /a/mm/ab/gpt/brute/ga/meta_evolution/logs_${DATASET} && export MODEL_NAME=$(python3 -c \"import json; full=json.load(open('/a/mm/ab/gpt/brute/ga/meta_evolution/model_config.json')).get('base_model_name', 'unknown').lower(); print('qwen' if 'qwen' in full else 'deepseek' if 'deepseek' in full else 'mistral' if 'mistral' in full else full.split('/')[0])\") && export RUN_TYPE=meta && python3 -u -m ab.gpt.brute.ga.meta_evolution.meta_evolver_imagenet100 2>&1 | tee /a/mm/ab/gpt/brute/ga/meta_evolution/logs_${DATASET}/${RUN_TYPE}_pod_${DATASET}_${MODEL_NAME}_${RUN_TS}.log"
+              "cd /a/mm && (pip uninstall -y flash-attn || true) && pip install \"torchao==0.15.0\" --no-deps --upgrade --extra-index-url https://download.pytorch.org/whl/cu126 && export PYTHONPATH=/a/mm && export RUN_TS=$(date +%d-%m-%y_%H-%M) && export DATASET=cifar10 && export PIPELINE_DIR=/a/mm/ab/gpt/brute/ga/meta_evolution/cifar10_pipeline && export MODEL_NAME=$(python3 -c \"import json, os; full=json.load(open(os.path.join(os.environ.get('PIPELINE_DIR', ''), 'model_config.json'))).get('base_model_name', 'unknown').lower(); print('qwen' if 'qwen' in full else 'deepseek' if 'deepseek' in full else 'mistral' if 'mistral' in full else full.split('/')[0])\" || echo \"unknown\") && mkdir -p ${PIPELINE_DIR}/logs_${DATASET}/${MODEL_NAME}/${RUN_TS} && python3 -u -m ab.gpt.brute.ga.meta_evolution.meta_evolver 2>&1 | tee ${PIPELINE_DIR}/logs_${DATASET}/${MODEL_NAME}/${RUN_TS}/${RUN_TS}_${DATASET}_${MODEL_NAME}_Pod_logs.log"
             ],
             "env": [
+              {
+                "name": "LOAD_PREVIOUS_ADAPTER",
+                "value": "false"
+              },
               {
                 "name": "HF_HOME",
                 "value": "/a/mm/.cache/huggingface"
@@ -38,7 +42,7 @@
               },
               {
                 "name": "POPULATION_SIZE",
-                "value": "2"
+                "value": "20"
               },
               {
                 "name": "GENERATIONS",
@@ -94,10 +98,6 @@
               {
                 "mountPath": "/a/mm/data",
                 "name": "v1"
-              },
-              {
-                "mountPath": "/a/mm/nn-dataset",
-                "name": "v2"
               }
             ]
           }
@@ -114,7 +114,7 @@
           {
             "name": "v0",
             "hostPath": {
-              "path": "/shared/ssd/home/b-a-singh/Thesis/clone4/nn-gpt",
+              "path": "/shared/ssd/home/b-a-singh/Thesis/cloneScience/nn-gpt",
               "type": "Directory"
             }
           },
@@ -122,13 +122,6 @@
             "name": "v1",
             "hostPath": {
               "path": "/shared/local/data/a-group-automl/data",
-              "type": "Directory"
-            }
-          },
-          {
-            "name": "v2",
-            "hostPath": {
-              "path": "/shared/ssd/home/b-a-singh/Thesis/NN-DATASET/C1/nn-dataset",
               "type": "Directory"
             }
           }

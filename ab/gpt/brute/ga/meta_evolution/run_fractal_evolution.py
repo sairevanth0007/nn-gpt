@@ -40,7 +40,7 @@ def suppress_output():
             sys.stderr = old_stderr
 
 import torch
-from ab.gpt.brute.ga.meta_evolution.modified_GA_cifar10.genetic_algorithm_evolved import GeneticAlgorithm
+
 from ab.gpt.brute.ga.meta_evolution.FractalNet_evolvable_backbone import SEARCH_SPACE, generate_model_code_string
 from ab.gpt.util.Eval import Eval
 import ab.nn.api as nn_dataset
@@ -55,12 +55,21 @@ logging.basicConfig(level=logging.INFO, format='%(message)s', force=True)
 
 # --- PATH SETUP ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PIPELINE_DIR = os.environ.get("PIPELINE_DIR", BASE_DIR)
+DATASET = os.environ.get("DATASET", "cifar10")
+DATASET_DASH = "cifar-100" if DATASET == "cifar100" else "cifar-10"
+
+import importlib
+if PIPELINE_DIR not in sys.path:
+    sys.path.insert(0, PIPELINE_DIR)
+ga_mod = importlib.import_module("modified_GA.genetic_algorithm_evolved")
+GeneticAlgorithm = ga_mod.GeneticAlgorithm
+
 # This is the folder where unique fractal models will be saved
-ARCH_DIR = os.path.join(BASE_DIR, 'ga_fractal_arch_cifar10') 
-STATS_DIR = os.path.join(BASE_DIR, 'stats_cifar10')
-# CHECKPOINT = 'GenFractal_ckpt_cifar10.pkl'
-CHECKPOINT = os.path.join(BASE_DIR, 'GenFractal_ckpt_cifar10.pkl')
-BEST_STATS_DIR = os.path.join(BASE_DIR, 'best_fractal_stats_cifar10')
+ARCH_DIR = os.path.join(PIPELINE_DIR, 'architectures') 
+STATS_DIR = os.path.join(PIPELINE_DIR, 'stats')
+CHECKPOINT = os.path.join(PIPELINE_DIR, f'GenFractal_ckpt_{DATASET}.pkl')
+BEST_STATS_DIR = os.path.join(PIPELINE_DIR, f'best_fractal_stats_{DATASET}')
 
 os.makedirs(ARCH_DIR, exist_ok=True)
 os.makedirs(STATS_DIR, exist_ok=True)
@@ -123,7 +132,7 @@ def _load_existing_checksums():
     count = 0
     # prefix = "img-classification_cifar_GenFractalNet-"   # BUG: missing '-10', never matched any folder
     # prefix = "img-classification_cifar-10_GenFractalNet-"
-    prefix = "img-classification_cifar-10_acc_GenFractalNet-"
+    prefix = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-"
     if os.path.isdir(STATS_DIR):
         for name in os.listdir(STATS_DIR):
             if name.startswith(prefix):
@@ -140,6 +149,8 @@ def _load_existing_checksums():
                     try:
                         with open(json_path) as f:
                             data = json.load(f)
+                        if isinstance(data, list) and len(data) > 0:
+                            data = data[-1]
                         hp = data.get('hyperparameters', {})
                         ts = data.get('training_summary', {})
                         for src, key in [
@@ -172,7 +183,7 @@ def _lookup_stored_fitness(checksum: str) -> float:
     from the stats/ folder instead of returning 0.0.
     Returns fitness as a percentage (e.g. 54.69), or 0.0 if the file is missing/unreadable.
     """
-    stats_dir_name = f"img-classification_cifar-10_acc_GenFractalNet-{checksum}"
+    stats_dir_name = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-{checksum}"
     stats_dir_path = os.path.join(STATS_DIR, stats_dir_name)
     if not os.path.isdir(stats_dir_path):
         print(f"  - Duplicate: no stored stats found for {checksum[:8]}, returning 0.0")
@@ -191,6 +202,8 @@ def _lookup_stored_fitness(checksum: str) -> float:
     try:
         with open(json_path) as f:
             data = json.load(f)
+        if isinstance(data, list) and len(data) > 0:
+            data = data[-1]
     except Exception as e:
         print(f"  - Duplicate: could not read stats for {checksum[:8]}: {e}")
         return 0.0
@@ -279,7 +292,7 @@ def fitness_function(chromosome: dict) -> float:
         evaluator = Eval(
             model_source_package=ARCH_DIR,
             task='img-classification',
-            dataset='cifar-10',
+            dataset=DATASET_DASH,
             metric='acc',
             prm=eval_prm,
             save_to_db=False,
@@ -324,7 +337,7 @@ def fitness_function(chromosome: dict) -> float:
                 full_res = {
                     'config': {
                         'task': 'img-classification',
-                        'dataset': 'cifar-10',
+                        'dataset': DATASET_DASH,
                         'metric': 'acc',
                         'model': model_name
                     },
@@ -341,8 +354,7 @@ def fitness_function(chromosome: dict) -> float:
         
         # Save exact requested stats format to a JSON folder structure
         # One JSON file per epoch: 1.json, 2.json, ..., N.json
-        # model_stats_dir_name = f"img-classification_cifar-10_GenFractalNet-{model_checksum}"
-        model_stats_dir_name = f"img-classification_cifar-10_acc_GenFractalNet-{model_checksum}"
+        model_stats_dir_name = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-{model_checksum}"
         model_stats_dir_path = os.path.join(STATS_DIR, model_stats_dir_name)
         os.makedirs(model_stats_dir_path, exist_ok=True)
 
@@ -357,7 +369,7 @@ def fitness_function(chromosome: dict) -> float:
                 ep_res['uid'] = model_checksum
                 stat_file = os.path.join(model_stats_dir_path, f"{ep_num}.json")
                 with open(stat_file, 'w') as sf:
-                    json.dump(ep_res, sf, indent=4)
+                    json.dump([ep_res], sf, indent=4)
             print(f"  - Saved {len(epoch_details)} epoch JSON file(s) to: {model_stats_dir_path}")
         else:
             # Fallback: save single file named after total epochs
@@ -368,7 +380,7 @@ def fitness_function(chromosome: dict) -> float:
                 max_epochs = full_res['training_summary']['total_epochs']
             stat_file = os.path.join(model_stats_dir_path, f"{max_epochs}.json")
             with open(stat_file, 'w') as sf:
-                json.dump(full_res, sf, indent=4)
+                json.dump([full_res], sf, indent=4)
             print(f"  - Saved stats (fallback) to: {stat_file}")
 
         # --- Verify at least one stats JSON was written before persisting model ---
@@ -507,16 +519,16 @@ if __name__ == "__main__":
         
         # Save Best Architecture
         if best:
+             MODEL_NAME = os.environ.get("MODEL_NAME", "unknown")
              best_code = generate_model_code_string(best['chromosome'])
-             best_path = os.path.join(BASE_DIR, "best_fractal_model.py")
+             best_path = os.path.join(PIPELINE_DIR, f"best_fractal_meta_{DATASET}_{MODEL_NAME}.py")
              with open(best_path, "w") as f:
                  f.write(best_code)
              print(f"[Best] Saved best model to {best_path}")
 
              # Copy Winning Stats
              best_checksum = uuid4(best_code)
-             # best_folder_name = f"img-classification_cifar-10_GenFractalNet-{best_checksum}"
-             best_folder_name = f"img-classification_cifar-10_acc_GenFractalNet-{best_checksum}"
+             best_folder_name = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-{best_checksum}"
              src_stats_path = os.path.join(STATS_DIR, best_folder_name)
              dst_stats_path = os.path.join(BEST_STATS_DIR, best_folder_name)
 
@@ -580,7 +592,8 @@ if __name__ == "__main__":
             "fitness_history": history,
             "total_generations": target_gens
         }
-        with open(os.path.join(BASE_DIR, "evolved_results.json"), "w") as f:
+        MODEL_NAME = os.environ.get("MODEL_NAME", "unknown")
+        with open(os.path.join(PIPELINE_DIR, f"evolved_results_{DATASET}_{MODEL_NAME}.json"), "w") as f:
             json.dump(trajectory, f, indent=4)
 
     except Exception as e:
@@ -594,7 +607,7 @@ if __name__ == "__main__":
     # (meta_evolver.py handles its own visualization at the end)
     if _standalone_mode:
         try:
-            from ab.gpt.brute.ga.meta_evolution.visualize_baseline_generations import main as generate_plots
+            from ab.gpt.brute.ga.meta_evolution.baseline_visualization import main as generate_plots
             print("\n=== Generating Visualizations ===")
             generate_plots()
         except Exception as e:

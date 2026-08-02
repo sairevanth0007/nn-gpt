@@ -5,8 +5,9 @@ from peft import PeftModel, LoraConfig, get_peft_model, prepare_model_for_kbit_t
 import os
 
 def _load_model_config():
-    """Load model_config.json from the same directory. Raises error if missing."""
-    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_config.json")
+    """Load model_config.json from the pipeline directory. Raises error if missing."""
+    pipeline_dir = os.environ.get("PIPELINE_DIR", os.path.dirname(os.path.abspath(__file__)))
+    config_path = os.path.join(pipeline_dir, "model_config.json")
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"[Config] model_config.json not found at {config_path}. Please create it.")
     with open(config_path, "r") as f:
