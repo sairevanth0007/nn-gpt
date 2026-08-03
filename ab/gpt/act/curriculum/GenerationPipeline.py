@@ -606,7 +606,7 @@ def write_entry_script(dataset: str, level: str, k: int,
     """
     dataset_safe = dataset.replace("-", "_")
     script_name  = f"CurriculumGen_{dataset_safe}_{level}_k{k}.py"
-    script_path  = NNGPT_DIR / "ab" / "gpt" / script_name
+    script_path  = NNGPT_DIR / "ab" / "gpt" / "act" / "curriculum" / script_name
 
     conf_id    = get_conf_id(dataset, level, k)
     gen_name   = get_prompt_name(dataset, level, k, is_train=False)
@@ -853,7 +853,7 @@ def run_step(dataset: str, step: dict, progress: dict,
     script_path = write_entry_script(dataset, level, k, llm_conf, dry_run)
 
     dataset_safe = dataset.replace("-", "_")
-    script_stem  = f"CurriculumGen_{dataset_safe}_{level}_k{k}"
+    script_stem  = f"act.curriculum.CurriculumGen_{dataset_safe}_{level}_k{k}"
 
     # ── Run curriculum fine-tuning ─────────────────────────────────────────────
     log(f"Launching: python -m ab.gpt.{script_stem}")
