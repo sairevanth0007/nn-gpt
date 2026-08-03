@@ -15,19 +15,19 @@ in the correct order given only a dataset name. Each level automatically:
 
 Usage:
     # Full automatic curriculum (only dataset required)
-    python -m ab.gpt.CurriculumGenerationPipeline --dataset cifar-10
+    python -m ab.gpt.act.curriculum.GenerationPipeline --dataset cifar-10
 
     # Dry run — see what would happen without running anything
-    python -m ab.gpt.CurriculumGenerationPipeline --dataset cifar-10 --dry_run
+    python -m ab.gpt.act.curriculum.GenerationPipeline --dataset cifar-10 --dry_run
 
     # Resume interrupted curriculum
-    python -m ab.gpt.CurriculumGenerationPipeline --dataset cifar-10 --resume
+    python -m ab.gpt.act.curriculum.GenerationPipeline --dataset cifar-10 --resume
 
     # Show results of a completed or partial curriculum
-    python -m ab.gpt.CurriculumGenerationPipeline --dataset cifar-10 --show_results
+    python -m ab.gpt.act.curriculum.GenerationPipeline --dataset cifar-10 --show_results
 
     # Cross-dataset comparison: single level only
-    python -m ab.gpt.CurriculumGenerationPipeline --dataset svhn --level L3 --k 2
+    python -m ab.gpt.act.curriculum.GenerationPipeline --dataset svhn --level L3 --k 2
 
 Supported datasets (viability auto-checked against LEMUR DB):
     cifar-10      Full curriculum viable (all bands)
@@ -1056,19 +1056,19 @@ def main() -> None:
         epilog="""
 Examples command lines:
   # Full automatic curriculum — only dataset required
-  python -m ab.gpt.CurriculumGenerationPipeline --dataset cifar-10
+  python -m ab.gpt.act.curriculum.GenerationPipeline --dataset cifar-10
 
   # Dry run — preview without running
-  python -m ab.gpt.CurriculumGenerationPipeline --dataset cifar-10 --dry_run
+  python -m ab.gpt.act.curriculum.GenerationPipeline --dataset cifar-10 --dry_run
 
   # Resume after interruption
-  python -m ab.gpt.CurriculumGenerationPipeline --dataset cifar-10 --resume
+  python -m ab.gpt.act.curriculum.GenerationPipeline --dataset cifar-10 --resume
 
   # Single step for cross-dataset ablation
-  python -m ab.gpt.CurriculumGenerationPipeline --dataset svhn --level L3 --k 2
+  python -m ab.gpt.act.curriculum.GenerationPipeline --dataset svhn --level L3 --k 2
 
   # Show results of completed curriculum
-  python -m ab.gpt.CurriculumGenerationPipeline --dataset cifar-10 --show_results
+  python -m ab.gpt.act.curriculum.GenerationPipeline --dataset cifar-10 --show_results
         """
     )
 

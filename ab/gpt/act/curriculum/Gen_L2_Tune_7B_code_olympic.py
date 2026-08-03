@@ -1,16 +1,16 @@
-import ab.gpt.CurriculumGen_L2 as CurriculumGen_L2
+import ab.gpt.act.curriculum.L2 as CurriculumGen_L2
 
 
 def main():
 
     CurriculumGen_L2.main(
         llm_conf='ds_coder_7b_olympic_ft.json',
-        llm_tune_conf='Curriculum_L2_medium_k2_train.json',
-        nn_gen_conf='Curriculum_L2_medium_k2.json',
-        nn_gen_conf_id='curriculum_L2_medium_k2',
+        llm_tune_conf='Curriculum_L2_medium_k3_train.json',
+        nn_gen_conf='Curriculum_L2_medium_k3.json',
+        nn_gen_conf_id='curriculum_L2_medium_k3',
         test_nn=10,
         skip_epoches=1,
-        nn_name_prefix='l2',
+        nn_name_prefix='l2_k3',
         use_agents=False,
         context_length=8192,
     )

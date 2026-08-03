@@ -1,4 +1,4 @@
-import ab.gpt.CurriculumGen_L1 as CurriculumGen_L1
+import ab.gpt.act.curriculum.L1 as CurriculumGen_L1
 
 
 def main():
