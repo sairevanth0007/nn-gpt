@@ -69,8 +69,8 @@ export PYTHONPATH=${NN_GPT_ROOT}:${PYTHONPATH:-}
 The existing public entrypoints remain in their original locations and continue to resolve flat prompt configs such as `NN_gen.json`.
 
 ```bash
-${VENV}/bin/python -m ab.gpt.Tune --help
-${VENV}/bin/python -m ab.gpt.TuneNNGen_delta --help
+${VENV}/bin/python -m ab.gpt.act.tune.Tune --help
+${VENV}/bin/python -m ab.gpt.act.tune.delta --help
 ${VENV}/bin/python ab/gpt/NNEval.py --help
 ```
 
@@ -333,8 +333,8 @@ These checks were run after moving the experiment scripts into `ab/gpt/analog/` 
 |---|---|
 | `python -m compileall ab/gpt/analog ab/gpt/util/EditUtil.py ab/gpt/util/Mergedecision.py ab/nn/util/CodeEval.py ab/nn/util/Train.py ab/nn/transform/echo_224.py ab/nn/transform/echo_28.py` | pass |
 | `python ab/gpt/NNEval.py --help` | pass |
-| `python -m ab.gpt.Tune --help` | pass |
-| `python -m ab.gpt.TuneNNGen_delta --help` | pass |
+| `python -m ab.gpt.act.tune.Tune --help` | pass |
+| `python -m ab.gpt.act.tune.delta --help` | pass |
 | `python -m ab.gpt.analog.TuneNNGenAnalog --help` | pass |
 | `python -m ab.gpt.analog.TuneNNGen_7B_code_olympic_analogical_smoke --help` | pass |
 | JSON validation for every file under `ab/gpt/conf/` | pass |

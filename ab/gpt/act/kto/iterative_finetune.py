@@ -25,7 +25,7 @@ from ab.gpt.act.iterative.gpu_memory_manager import (
     kill_gpu_processes,
 )
 from ab.gpt.act.kto.kto_data_manager import KTODataManager
-from ab.gpt.Tune import get_pipeline_defaults
+from ab.gpt.act.tune.Tune import get_pipeline_defaults
 from ab.gpt.util.Const import nngpt_dir
 from ab.nn.util.Const import out_dir
 
@@ -358,7 +358,7 @@ class KTOIterativeFinetuner(IterativeFinetuner):
     def run_finetuning(self, cycle: int, data_dir: Path) -> Dict[str, Any]:
         """
         Run KTO fine-tuning for one cycle by spawning
-        `python -m ab.gpt.TuneNNGenKTO --kto_data_file <path/kto_train.jsonl> ...`
+        `python -m ab.gpt.act.tune.KTO --kto_data_file <path/kto_train.jsonl> ...`
         """
         logger.info("")
         logger.info("=" * 80)
@@ -426,7 +426,7 @@ class KTOIterativeFinetuner(IterativeFinetuner):
 
         # KTO  ←── changed: spawn TuneNNGenKTO, not TuneNNGen
         cmd = [
-            sys.executable, "-m", "ab.gpt.TuneNNGenKTO",
+            sys.executable, "-m", "ab.gpt.act.tune.KTO",
             "--llm_conf", self.llm_conf,
             "--kto_data_file", str(kto_train_file),
             "--kto_checkpoint_dir", str(kto_ckpt_dir),

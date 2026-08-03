@@ -37,7 +37,7 @@ from ab.gpt.act.iterative.gpu_memory_manager import (
 )
 from ab.dup.preprocessing import curate_from_lemur
 from ab.chatprep.prompt_builder import ChatPrepConfig
-from ab.gpt.Tune import get_pipeline_defaults
+from ab.gpt.act.tune.Tune import get_pipeline_defaults
 from ab.nn.util.Const import out_dir
 from ab.gpt.util.Const import nngpt_dir, new_nn_file, DEFAULT_DATASET, DEFAULT_NN_PREFIXES
 
@@ -352,7 +352,7 @@ class IterativeFinetuner:
         generation_dir = self.output_dir / f"cycle_{cycle}" / "generation"
         generation_dir.mkdir(parents=True, exist_ok=True)
         cmd = [
-            "python", "-m", "ab.gpt.Tune",
+            "python", "-m", "ab.gpt.act.tune.Tune",
             "--llm_conf", self.llm_conf,
             "--data_dir", str(data_dir),
             "--num_cycles", "1",

@@ -1,4 +1,4 @@
-import ab.gpt.Tune as TuneNNGen
+import ab.gpt.act.tune.Tune as TuneNNGen
 import sys
 
 def main():

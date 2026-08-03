@@ -74,7 +74,7 @@ python -m ab.stat.export
 
 - **`ab.gpt.NNEval`** – Evaluates the models generated in the previous step.
 
-- **`ab.gpt.Tune*`** – Performs fine-tuning and evaluation of an LLM. For evaluation purposes, the LLM generates neural network models, which are then trained to assess improvements in the LLM’s performance on this task. The -s flag allows skipping model generation for the specified number of epochs.
+- **`ab.gpt.act.tune.Tune*`** – Performs fine-tuning and evaluation of an LLM. For evaluation purposes, the LLM generates neural network models, which are then trained to assess improvements in the LLM’s performance on this task. The -s flag allows skipping model generation for the specified number of epochs.
 
 - **`ab.gpt.AccPredictor`** – Fine-tunes and evaluates a Qwen3-8B accuracy predictor from LEMUR training runs. Given early-epoch accuracies and neural network code, it predicts final `best_accuracy` and `best_epoch`.
 
@@ -106,10 +106,10 @@ python -m ab.stat.export
 
   Requires a GPU with ≥24 GB VRAM, `unsloth`, and the LEMUR/nn-dataset package installed.
 
-- **`ab.gpt.TuneNNGen_delta.py`** – Delta-based fine-tuning entry point (see [arXiv:2605.04903](https://arxiv.org/abs/2605.04903)). The LLM generates compact unified diffs (deltas) to refine baseline architectures instead of full code. Uses paper-aligned hyperparameters (lr=1e-5, temperature=0.35, top-k=50, LoRA with `lm_head`). Calls `TuneNNGen.main()` with delta defaults — no upstream behavior is changed.
+- **`ab.gpt.act.tune.delta.py`** – Delta-based fine-tuning entry point (see [arXiv:2605.04903](https://arxiv.org/abs/2605.04903)). The LLM generates compact unified diffs (deltas) to refine baseline architectures instead of full code. Uses paper-aligned hyperparameters (lr=1e-5, temperature=0.35, top-k=50, LoRA with `lm_head`). Calls `TuneNNGen.main()` with delta defaults — no upstream behavior is changed.
   ```bash
-  python -m ab.gpt.TuneNNGen_delta
-  python -m ab.gpt.TuneNNGen_delta --llm_conf qwen2.5_coder_7b_instruct.json
+  python -m ab.gpt.act.tune.delta
+  python -m ab.gpt.act.tune.delta --llm_conf qwen2.5_coder_7b_instruct.json
   ```
 
 ## LangGraph Multi-Agent Workflow
@@ -144,7 +144,7 @@ The agent mode is enabled by default.
 To use the accuracy predictor agent:
 
 ```bash
-python -m ab.gpt.Tune --use_predictor
+python -m ab.gpt.act.tune.Tune --use_predictor
 ```
 
 ### Agent Files
@@ -171,7 +171,7 @@ docker run --rm -u $(id -u):ab -v $(pwd):/a/mm abrainone/ai-linux:llm bash -c "[
 
 Running script
 ```bash
-docker run --rm -u $(id -u):ab --shm-size=16G -v $(pwd)/nn-gpt:/a/mm abrainone/ai-linux:llm bash -c "python -m ab.gpt.TuneNNGen_8B"
+docker run --rm -u $(id -u):ab --shm-size=16G -v $(pwd)/nn-gpt:/a/mm abrainone/ai-linux:llm bash -c "python -m ab.gpt.act.tune.8B"
 ```
 
 If recently added dependencies are missing in the <a href='https://hub.docker.com/r/abrainone/ai-linux' target='_blank'>AI Linux</a>, you can create a container from the Docker image ```abrainone/ai-linux:llm```, install the missing packages (preferably using ```pip install <package name>```), and then create a new image from the container using ```docker commit <container name> <new image name>```. You can use this new image locally or push it to the registry for deployment on the computer cluster.

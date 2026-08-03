@@ -5,7 +5,7 @@ Simple wrapper to trigger the iterative fine-tuning pipeline
 via TuneNNGen_v2.main() with run_iterative_pipeline=True.
 """
 
-import ab.gpt.Tune as TuneNNGen
+import ab.gpt.act.tune.Tune as TuneNNGen
 
 
 def main():

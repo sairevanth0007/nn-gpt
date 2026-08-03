@@ -6,7 +6,7 @@ repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 sys.path.insert(0, repo_root)
 os.chdir(repo_root)
 
-import ab.gpt.TuneNNGen_prun as TuneNNGenPrun
+import ab.gpt.act.tune.prun as TuneNNGenPrun
 
 def main():
    

@@ -762,7 +762,7 @@ class SelfContainedKTOPipeline:
         prev_adapter = self._prev_adapter(cycle)
 
         cmd = [
-            sys.executable, "-u", "-m", "ab.gpt.TuneNNGenKTO",
+            sys.executable, "-u", "-m", "ab.gpt.act.tune.KTO",
             "--llm_conf", self.llm_conf,
             "--kto_data_file", str(kto_file),
             "--kto_checkpoint_dir", str(checkpoint_dir),

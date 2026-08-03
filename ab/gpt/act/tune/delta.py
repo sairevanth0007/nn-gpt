@@ -7,13 +7,13 @@ Implements delta code generation using paper-aligned hyperparameters:
 - DeepSeek-Coder-7B-Instruct (default) or Qwen2.5-Coder-7B-Instruct
 
 Usage (standalone):
-    python -m ab.gpt.TuneNNGen_delta
-    python -m ab.gpt.TuneNNGen_delta --llm_conf qwen2.5_coder_7b_instruct.json
+    python -m ab.gpt.act.tune.delta
+    python -m ab.gpt.act.tune.delta --llm_conf qwen2.5_coder_7b_instruct.json
 """
 
 import argparse
 
-import ab.gpt.Tune as TuneNNGen
+import ab.gpt.act.tune.Tune as TuneNNGen
 
 # Delta-only defaults (paper-aligned); kept out of TuneNNGen.py for upstream parity.
 DELTA_LEARNING_RATE = 1e-5
