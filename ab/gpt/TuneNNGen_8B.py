@@ -1,4 +1,4 @@
-import ab.gpt.TuneNNGen as TuneNNGen
+import ab.gpt.Tune as TuneNNGen
 
 
 def main():

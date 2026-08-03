@@ -1,4 +1,4 @@
-import ab.gpt.TuneNNGen as TuneNNGen
+import ab.gpt.Tune as TuneNNGen
 
 def main(llm_conf=None, llm_tune_conf=None, nn_gen_conf=None,
          nn_gen_conf_id=None, test_nn=None, skip_epoches=None,

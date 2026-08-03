@@ -58,7 +58,7 @@ The main paper-style comparison uses DeepSeek-Coder only.
 ### 1-Pattern DeepSeek SFT
 
 ```bash
-python -m ab.gpt.TuneBackbone \
+python -m ab.gpt.act.tune.Backbone \
   --llm_conf backbone_sft_config.json \
   --sft_nn_prefixes rl-bb-test1 \
   --gen_nn_prefix rl-bb-test1-dscoder7b-sftcycle \
@@ -76,7 +76,7 @@ $RUN_ROOT/sft/1pattern/deepseek/A<cycle>/deepseek-ai/deepseek-coder-6.7b-instruc
 ### 4-Pattern DeepSeek SFT
 
 ```bash
-python -m ab.gpt.TuneBackbone \
+python -m ab.gpt.act.tune.Backbone \
   --llm_conf backbone_sft_config.json \
   --sft_nn_prefixes rl-bb-struct1,rl-bb-struct1-v2 \
   --gen_nn_prefix rl-bb-struct1-v2-dscoder7b-sftcycle-full \

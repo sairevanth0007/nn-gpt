@@ -13,7 +13,7 @@ Usage (standalone):
 
 import argparse
 
-import ab.gpt.TuneNNGen as TuneNNGen
+import ab.gpt.Tune as TuneNNGen
 
 # Delta-only defaults (paper-aligned); kept out of TuneNNGen.py for upstream parity.
 DELTA_LEARNING_RATE = 1e-5

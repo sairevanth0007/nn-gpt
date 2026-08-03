@@ -74,7 +74,7 @@ python -m ab.stat.export
 
 - **`ab.gpt.NNEval`** – Evaluates the models generated in the previous step.
 
-- **`ab.gpt.TuneNNGen*`** – Performs fine-tuning and evaluation of an LLM. For evaluation purposes, the LLM generates neural network models, which are then trained to assess improvements in the LLM’s performance on this task. The -s flag allows skipping model generation for the specified number of epochs.
+- **`ab.gpt.Tune*`** – Performs fine-tuning and evaluation of an LLM. For evaluation purposes, the LLM generates neural network models, which are then trained to assess improvements in the LLM’s performance on this task. The -s flag allows skipping model generation for the specified number of epochs.
 
 - **`ab.gpt.AccPredictor`** – Fine-tunes and evaluates a Qwen3-8B accuracy predictor from LEMUR training runs. Given early-epoch accuracies and neural network code, it predicts final `best_accuracy` and `best_epoch`.
 
@@ -144,7 +144,7 @@ The agent mode is enabled by default.
 To use the accuracy predictor agent:
 
 ```bash
-python -m ab.gpt.TuneNNGen --use_predictor
+python -m ab.gpt.Tune --use_predictor
 ```
 
 ### Agent Files

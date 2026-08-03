@@ -1,5 +1,5 @@
 cd ../../../..
-nohup python3 -m ab.gpt.TuneBackbone \
+nohup python3 -m ab.gpt.act.tune.Backbone \
   --llm_conf backbone_sft_config.json \
   --sft_nn_prefixes rl-bb-struct1,rl-bb-struct1-v2 \
   --gen_nn_prefix rl-bb-struct1-v2-dscoder7b-sftcycle-full \

@@ -25,7 +25,7 @@ from ab.gpt.act.iterative.gpu_memory_manager import (
     kill_gpu_processes,
 )
 from ab.gpt.act.kto.kto_data_manager import KTODataManager
-from ab.gpt.TuneNNGen import get_pipeline_defaults
+from ab.gpt.Tune import get_pipeline_defaults
 from ab.gpt.util.Const import nngpt_dir
 from ab.nn.util.Const import out_dir
 
