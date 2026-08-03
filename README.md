@@ -76,7 +76,7 @@ python -m ab.stat.export
 
 - **`ab.gpt.act.tune.Tune*`** – Performs fine-tuning and evaluation of an LLM. For evaluation purposes, the LLM generates neural network models, which are then trained to assess improvements in the LLM’s performance on this task. The -s flag allows skipping model generation for the specified number of epochs.
 
-- **`ab.gpt.AccPredictor`** – Fine-tunes and evaluates a Qwen3-8B accuracy predictor from LEMUR training runs. Given early-epoch accuracies and neural network code, it predicts final `best_accuracy` and `best_epoch`.
+- **`ab.gpt.act.AccPredictor`** – Fine-tunes and evaluates a Qwen3-8B accuracy predictor from LEMUR training runs. Given early-epoch accuracies and neural network code, it predicts final `best_accuracy` and `best_epoch`.
 
   Running the script runs four steps in order:
 
@@ -86,14 +86,14 @@ python -m ab.stat.export
   4. **Model testing** — runs inference on the test split and writes `ab/gpt/data/test_predictions.csv` and `test_metrics.log`
 
   ```bash
-  python -m ab.gpt.AccPredictor
+  python -m ab.gpt.act.AccPredictor
   ```
 
   Individual steps can also be imported:
 
   ```python
-  from ab.gpt.AccPredictor import data_preprocessing, prepare_llm_datasets, train_model, test_model, predict_best_accuracy
-  from ab.gpt.AccPredictor import DEFAULT_TRAIN_PATH, DEFAULT_VAL_PATH, DEFAULT_OUTPUT_DIR, DEFAULT_TEST_PATH
+  from ab.gpt.act.AccPredictor import data_preprocessing, prepare_llm_datasets, train_model, test_model, predict_best_accuracy
+  from ab.gpt.act.AccPredictor import DEFAULT_TRAIN_PATH, DEFAULT_VAL_PATH, DEFAULT_OUTPUT_DIR, DEFAULT_TEST_PATH
 
   data_preprocessing()
   prepare_llm_datasets()
@@ -156,7 +156,7 @@ python -m ab.gpt.act.tune.Tune --use_predictor
 | `ab/gpt/agents/predictor.py` | Optional accuracy prediction node |
 | `ab/gpt/agents/state.py` | Shared `AgentState` TypedDict — field names match LEMUR DB columns |
 | `ab/gpt/util/Tune.py` | Single source of truth: `nn_gen`, `trans_gen`, `_evaluate_epoch`, `_finetune_epoch`, `generate_step`, `evaluate_step`, `finetune_step` |
-| `ab/gpt/AccPredictor.py` | Accuracy predictor: data prep, fine-tuning, and evaluation |
+| `ab/gpt/act/AccPredictor.py` | Accuracy predictor: data prep, fine-tuning, and evaluation |
 
 
 <a href='https://huggingface.co/ABrain'><strong>Fine-tuned LLMs</strong></a>
