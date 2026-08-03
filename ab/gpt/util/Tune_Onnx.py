@@ -12,7 +12,7 @@ import ab.nn.api as lemur
 import deepspeed
 from ab.nn.util.Util import release_memory, create_file
 from tqdm import tqdm
-import ab.gpt.NNEval as NNEval
+import ab.gpt.act.eval.Eval as NNEval
 from ab.gpt.util.Chatbot import ChatBot
 from ab.gpt.util.Const import (
     out_dir,

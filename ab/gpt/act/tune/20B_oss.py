@@ -16,7 +16,7 @@ except ImportError:
     
 import argparse
 import ab.gpt.act.tune.Tune as TuneNNGen
-from ab.gpt.NNEval import NN_TRAIN_EPOCHS
+from ab.gpt.act.eval.Eval import NN_TRAIN_EPOCHS
 from ab.gpt.util.Const import new_out_file
 
 

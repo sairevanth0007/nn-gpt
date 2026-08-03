@@ -1,6 +1,6 @@
 import os
 
-import ab.gpt.edge.EdgeGen_k4 as EdgeGen
+import ab.gpt.act.edge.EdgeGen_k4 as EdgeGen
 
 
 def _env_int(name, default):

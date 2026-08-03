@@ -4,7 +4,7 @@ from pathlib import Path
 from datetime import datetime
 
 from ab.gpt.brute.fract.nas.NNAlterBN import alter
-from ab.gpt.NNEval import main as eval_main
+from ab.gpt.act.eval.Eval import main as eval_main
 from ab.gpt.util.Const import nngpt_dir, synth_dir, epoch_dir
 
 

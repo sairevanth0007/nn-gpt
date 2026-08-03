@@ -72,7 +72,7 @@ python -m ab.stat.export
 - **`ab.gpt.act.alter.*`** – Generates modified neural network models.  
   Use the `-e` argument to set the number of epochs for the initial CV model generation.
 
-- **`ab.gpt.NNEval`** – Evaluates the models generated in the previous step.
+- **`ab.gpt.act.eval.Eval`** – Evaluates the models generated in the previous step.
 
 - **`ab.gpt.act.tune.Tune*`** – Performs fine-tuning and evaluation of an LLM. For evaluation purposes, the LLM generates neural network models, which are then trained to assess improvements in the LLM’s performance on this task. The -s flag allows skipping model generation for the specified number of epochs.
 
@@ -151,10 +151,10 @@ python -m ab.gpt.act.tune.Tune --use_predictor
 
 | File | Purpose |
 |---|---|
-| `ab/gpt/agents/run_agent.py` | Builds and runs the LangGraph StateGraph |
-| `ab/gpt/agents/manager.py` | Routing logic and epoch stop condition |
-| `ab/gpt/agents/predictor.py` | Optional accuracy prediction node |
-| `ab/gpt/agents/state.py` | Shared `AgentState` TypedDict — field names match LEMUR DB columns |
+| `ab/gpt/act/agents/run_agent.py` | Builds and runs the LangGraph StateGraph |
+| `ab/gpt/act/agents/manager.py` | Routing logic and epoch stop condition |
+| `ab/gpt/act/agents/predictor.py` | Optional accuracy prediction node |
+| `ab/gpt/act/agents/state.py` | Shared `AgentState` TypedDict — field names match LEMUR DB columns |
 | `ab/gpt/util/Tune.py` | Single source of truth: `nn_gen`, `trans_gen`, `_evaluate_epoch`, `_finetune_epoch`, `generate_step`, `evaluate_step`, `finetune_step` |
 | `ab/gpt/act/AccPredictor.py` | Accuracy predictor: data prep, fine-tuning, and evaluation |
 

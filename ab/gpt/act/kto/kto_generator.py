@@ -15,7 +15,7 @@ import numpy as np
 import torch
 
 # Read-only reuse of existing repo helpers (not modified).
-from ab.gpt.markov.code_extractor import CodeExtractor, validate_code, check_net_class
+from ab.gpt.act.markov.code_extractor import CodeExtractor, validate_code, check_net_class
 from ab.gpt.util.Const import conf_test_dir, new_nn_file
 from ab.gpt.util.LLMUtil import quantization_config_4bit
 

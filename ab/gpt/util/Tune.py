@@ -29,7 +29,7 @@ from ab.nn.util.Util import release_memory, create_file
 from peft import PeftModel
 from tqdm import tqdm
 
-import ab.gpt.NNEval as NNEval
+import ab.gpt.act.eval.Eval as NNEval
 from ab.gpt.util.Chatbot import ChatBot
 from ab.gpt.util.Const import *
 from ab.gpt.util.Const import nngpt_dir
@@ -50,7 +50,7 @@ from ab.gpt.util.Const import nngpt_upload, DEFAULT_DATASET, DEFAULT_NN_PREFIXES
 import ab.gpt.util.SFTUtil as SFTUtil
 from ab.gpt.brute.trans.TransformEval import run_eval
 from ab.gpt.util.prompt.TransformGenPrompt import TransformGenPrompt, load_data_from_folders
-from ab.gpt.agents.state import AgentState
+from ab.gpt.act.agents.state import AgentState
 import ab.gpt.util.training_runtime as TrainingRuntime
 
 ds_conf = conf_dir / 'DeepSpeed.json'
@@ -731,7 +731,7 @@ def _evaluate_epoch(
                 cmd = [
                     sys.executable,
                     "-m",
-                    "ab.gpt.NNEval",
+                    "ab.gpt.act.eval.Eval",
                     "--nn_train_epochs",
                     str(nn_train_epochs),
                     "--only_epoch",
@@ -1199,7 +1199,7 @@ def tune(
     shutil.rmtree(epoch_root_path, ignore_errors=True)
 
     if use_agents:
-        from ab.gpt.agents.run_agent import run_agent_controller
+        from ab.gpt.act.agents.run_agent import run_agent_controller
         return run_agent_controller(state)
 
     for epoch in range(llm_tune_epochs):

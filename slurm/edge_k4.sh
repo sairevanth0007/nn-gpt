@@ -47,7 +47,7 @@ echo "=========================================="
 
 RUN_CMD="export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True && \
 python -m ab.gpt.act.curriculum.Gen_edge_k4_Tune_7B && \
-python -m ab.gpt.edge.EdgeScore --dataset ${EDGE_DATASET} --param-limit ${EDGE_PARAM_LIMIT}"
+python -m ab.gpt.act.edge.EdgeScore --dataset ${EDGE_DATASET} --param-limit ${EDGE_PARAM_LIMIT}"
 
 if [ "$USE_CONTAINER" = "1" ]; then
     if [ ! -f "$CONTAINER_IMAGE" ]; then
