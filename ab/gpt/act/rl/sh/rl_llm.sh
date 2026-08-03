@@ -25,4 +25,4 @@ export NNGPT_SFT_MODEL_OUT="$RUN_ROOT/out/rl/$RUN_ID/model"
 export NNGPT_SFT_TRAINER_OUT="$RUN_ROOT/out/rl/$RUN_ID/trainer"
 export NNGPT_SFT_EPOCH_ROOT="$RUN_ROOT/out/rl/$RUN_ID/epoch_sft"
 
-exec python -m ab.gpt.TuneRLSft
+exec python -m ab.gpt.act.rl.RLSft

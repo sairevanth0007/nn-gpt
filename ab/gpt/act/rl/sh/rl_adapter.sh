@@ -33,6 +33,6 @@ export NNGPT_SFT_MODEL_OUT="$RUN_ROOT/out/rl/$RUN_ID/model"
 export NNGPT_SFT_TRAINER_OUT="$RUN_ROOT/out/rl/$RUN_ID/trainer"
 export NNGPT_SFT_EPOCH_ROOT="$RUN_ROOT/out/rl/$RUN_ID/epoch_sft"
 
-nohup python -m ab.gpt.TuneRLSft  > logs-rl.txt 2>&1 &
+nohup python -m ab.gpt.act.rl.RLSft  > logs-rl.txt 2>&1 &
 tail -f logs-rl.txt
 

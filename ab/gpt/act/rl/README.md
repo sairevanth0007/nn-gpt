@@ -152,7 +152,7 @@ export NNGPT_SFT_MODEL_OUT="$RUN_ROOT/rl/$RUN_ID/model"
 export NNGPT_SFT_TRAINER_OUT="$RUN_ROOT/rl/$RUN_ID/trainer"
 export NNGPT_SFT_EPOCH_ROOT="$RUN_ROOT/rl/$RUN_ID/epoch_sft"
 
-python -m ab.gpt.TuneRLSft
+python -m ab.gpt.act.rl.RLSft
 ```
 
 This produces an 800-sample target per run: 8 generations per step for 100

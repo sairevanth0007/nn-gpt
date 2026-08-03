@@ -99,8 +99,8 @@ SFT_FORMAL_DATASET_ALIASES = {
     "imagenette": "imagenette",
 }
 
-import ab.gpt.TuneRL as TuneRL
-from ab.gpt.rl_pipeline.completion import (
+import ab.gpt.act.rl.RL as TuneRL
+from ab.gpt.act.rl.completion import (
     BLOCK_SIGNATURE,
     FORWARD_SIGNATURE,
     INIT_SIGNATURE,
@@ -108,7 +108,7 @@ from ab.gpt.rl_pipeline.completion import (
     extract_completion_blocks_tolerant,
     extract_completion_meta,
 )
-import ab.gpt.rl_pipeline.trainer_runtime as TrainerRuntime
+import ab.gpt.act.rl.trainer_runtime as TrainerRuntime
 import ab.gpt.util.Reward as RewardUtil
 import ab.gpt.util.SFTUtil as SFTUtil
 import ab.gpt.util.training_runtime as TrainingRuntime
@@ -1080,7 +1080,7 @@ def _maybe_relaunch_sft_with_visible_gpu_workers() -> None:
             f"--master_addr={os.environ['MASTER_ADDR']}",
             f"--master_port={master_port}",
             "-m",
-            "ab.gpt.TuneRLSft",
+            "ab.gpt.act.rl.RLSft",
         ],
         os.environ,
     )
@@ -2443,7 +2443,7 @@ if __name__ == "__main__":
     except BaseException:
         traceback.print_exc()
         try:
-            import ab.gpt.TuneRL as _TuneRL
+            import ab.gpt.act.rl.RL as _TuneRL
 
             logger = getattr(_TuneRL, "code_logger", None)
             if logger is not None:

@@ -6,8 +6,8 @@ Generates CV model code with the LLM, actually trains each model
 on CIFAR-10, and uses the real test accuracy as the PPO reward.
 
 Usage:
-    python -m ab.gpt.TunePPO --simple_test          # quick test (6 prompts, 2 epochs)
-    python -m ab.gpt.TunePPO --num_prompts 20 --num_epochs 3   # real training
+    python -m ab.gpt.act.rl.PPO --simple_test          # quick test (6 prompts, 2 epochs)
+    python -m ab.gpt.act.rl.PPO --num_prompts 20 --num_epochs 3   # real training
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import torchvision
 import torchvision.transforms as transforms
 
 import ab.nn.api as api
-from ab.gpt.rl_pipeline.trainer_runtime import (
+from ab.gpt.act.rl.trainer_runtime import (
     load_tokenizer, load_quantized_causal_lm,
     build_lora_config, attach_or_resume_lora,
     enable_non_reentrant_gradient_checkpointing,
