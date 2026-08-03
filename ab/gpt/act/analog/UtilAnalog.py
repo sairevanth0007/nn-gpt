@@ -13,7 +13,7 @@ import torch
 from ab.gpt.util.Const import conf_dir, new_lemur_nn_dir, new_nn_file, new_lemur_stat_dir
 from ab.gpt.util.EditUtil import normalize_edit_text, parse_edit_text
 
-from ..util.Code import *
+from ab.gpt.util.Code import *
 
 
 DATASET_META_PATH = conf_dir / 'dataset_meta.json'
