@@ -482,7 +482,7 @@ def main():
 
     # ── Route: iterative pipeline ───────────────────────────────────────────
     if args.run_iterative_pipeline:
-        from ab.gpt.kto_iterative_finetune import KTOIterativeFinetuner
+        from ab.gpt.act.kto.iterative_finetune import KTOIterativeFinetuner
 
         if args.resume_from_cycle is not None:
             if args.resume_from_cycle < 1 or args.resume_from_cycle > args.cycles:

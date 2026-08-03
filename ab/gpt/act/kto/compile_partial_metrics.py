@@ -8,7 +8,7 @@ run folder and prints the card block — so you can summarize a live run without
 waiting for or interrupting it.
 
 Usage:
-    python -m ab.gpt.kto_pipeline.compile_partial_metrics --run_dir out_2777004
+    python -m ab.gpt.act.kto.compile_partial_metrics --run_dir out_2777004
 """
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ def _count_generated(run_dir: Path) -> int:
 def _structural_unique(codes: List[str]) -> Optional[int]:
     """Count structurally-distinct architectures via the repo's NoveltyChecker."""
     try:
-        from ab.gpt.iterative_pipeline.novelty_checker import NoveltyChecker
+        from ab.gpt.act.iterative.novelty_checker import NoveltyChecker
     except Exception:  # noqa: BLE001
         return None
     try:

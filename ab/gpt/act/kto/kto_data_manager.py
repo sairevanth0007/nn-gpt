@@ -36,7 +36,7 @@ import random
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
-from ab.gpt.iterative_pipeline.training_data_manager import TrainingDataManager
+from ab.gpt.act.iterative.training_data_manager import TrainingDataManager
 
 
 class KTODataManager(TrainingDataManager):

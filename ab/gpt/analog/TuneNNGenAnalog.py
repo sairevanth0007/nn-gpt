@@ -130,7 +130,7 @@ def main(num_train_epochs=NUM_TRAIN_EPOCHS, lr_scheduler=LR_SCHEDULER, max_grad_
     # --- Pipeline mode intercept ---
     if run_iterative_pipeline:
         print("--- Initiating Iterative Fine-Tuning Pipeline ---")
-        from ab.gpt.iterative_finetune import IterativeFinetuner
+        from ab.gpt.act.iterative.finetune import IterativeFinetuner
         pipeline = IterativeFinetuner(
             llm_conf=llm_conf,
             cycles=cycles,

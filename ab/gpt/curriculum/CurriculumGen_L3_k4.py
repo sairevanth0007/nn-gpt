@@ -602,7 +602,7 @@ if __name__ == '__main__':
                 parser.error(f"--resume_from_cycle must be between 1 and {args.cycles}, got {args.resume_from_cycle}")
 
         # Import and run iterative pipeline
-        from ab.gpt.iterative_finetune import IterativeFinetuner
+        from ab.gpt.act.iterative.finetune import IterativeFinetuner
 
         pipeline = IterativeFinetuner(
             base_data_dir=args.base_data_dir,

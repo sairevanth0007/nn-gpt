@@ -19,11 +19,11 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ab.gpt.iterative_finetune import IterativeFinetuner, logger
-from ab.gpt.iterative_pipeline.gpu_memory_manager import clear_gpu_cache
-from ab.gpt.iterative_pipeline.pipeline_validation import StageValidator
-from ab.gpt.iterative_pipeline.novelty_checker import NoveltyChecker
-from ab.gpt.iterative_pipeline.training_data_manager import TrainingDataManager
+from ab.gpt.act.iterative.finetune import IterativeFinetuner, logger
+from ab.gpt.act.iterative.gpu_memory_manager import clear_gpu_cache
+from ab.gpt.act.iterative.pipeline_validation import StageValidator
+from ab.gpt.act.iterative.novelty_checker import NoveltyChecker
+from ab.gpt.act.iterative.training_data_manager import TrainingDataManager
 from ab.chatprep.prompt_builder import ChatPrepConfig
 from ab.nn.util.Const import out_dir
 

@@ -11,20 +11,20 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ab.gpt.iterative_finetune import IterativeFinetuner, logger
-from ab.gpt.iterative_pipeline.novelty_checker import NoveltyChecker
-from ab.gpt.iterative_pipeline.pipeline_validation import (
+from ab.gpt.act.iterative.finetune import IterativeFinetuner, logger
+from ab.gpt.act.iterative.novelty_checker import NoveltyChecker
+from ab.gpt.act.iterative.pipeline_validation import (
     RetryHandler,
     StageValidator,
 )
-from ab.gpt.iterative_pipeline.gpu_memory_manager import (
+from ab.gpt.act.iterative.gpu_memory_manager import (
     check_gpu_memory,
     clear_gpu_cache,
     ensure_gpu_memory,
     get_gpu_memory_info,
     kill_gpu_processes,
 )
-from ab.gpt.kto_pipeline.kto_data_manager import KTODataManager
+from ab.gpt.act.kto.kto_data_manager import KTODataManager
 from ab.gpt.TuneNNGen import get_pipeline_defaults
 from ab.gpt.util.Const import nngpt_dir
 from ab.nn.util.Const import out_dir

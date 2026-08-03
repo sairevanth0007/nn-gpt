@@ -15,8 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ab.gpt.kto_pipeline.kto_generator import build_prompt_messages
-from ab.gpt.iterative_pipeline.novelty_checker import NoveltyChecker
+from ab.gpt.act.kto.kto_generator import build_prompt_messages
+from ab.gpt.act.iterative.novelty_checker import NoveltyChecker
 from ab.gpt.util.Const import conf_llm_dir, nngpt_dir
 from ab.gpt.util.CycleResults import save_cycle_results
 
@@ -218,7 +218,7 @@ class SelfContainedKTOPipeline:
         # Built once; new generations are added as they're accepted (cumulative).
         self.sim_index = None
         if self.sim_penalty:
-            from ab.gpt.kto_pipeline.similarity_penalty import SimilarityIndex
+            from ab.gpt.act.kto.similarity_penalty import SimilarityIndex
             self.sim_index = SimilarityIndex(threshold=self.sim_threshold)
             n_db = self.sim_index.add_db(self.sim_db_task, self.sim_db_dataset)
             n_prev = self.sim_index.add_codes(
@@ -360,7 +360,7 @@ class SelfContainedKTOPipeline:
         logger.info("=" * 80)
 
         cmd = [
-            sys.executable, "-u", "-m", "ab.gpt.kto_pipeline.kto_generator",
+            sys.executable, "-u", "-m", "ab.gpt.act.kto.kto_generator",
             "--base_model", self.base_model,
             "--out_dir", str(nneval_dir),
             "--records_file", str(records_file),
