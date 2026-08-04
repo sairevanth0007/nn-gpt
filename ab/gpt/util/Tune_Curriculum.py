@@ -580,7 +580,7 @@ def nn_gen(epoch, out_path, chat_bot, conf_keys, nn_train_epochs, prompt_dict, t
             shutil.rmtree(spurious_nn)
             print("[FIX] Removed spurious ab/nn directory")
 
-        NNEval.main(nn_name_prefix, nn_train_epochs, epoch, batch=16, epoch_limit_minutes=8, use_sequential=True)
+        NNEval.main(nn_name_prefix, nn_train_epochs, epoch, batch=16, epoch_limit_minutes=8, use_all_visible_gpus=False)
         print('[DEBUG] Release_memory.')
         release_memory()
     else:
