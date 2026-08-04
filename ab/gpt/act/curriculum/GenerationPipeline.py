@@ -33,6 +33,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from ab.nn.util.Const import ab_root_path, out_dir
+from ab.gpt.util.Const import gpt_dir, conf_dir, conf_test_dir, conf_train_dir, conf_llm_dir
 
 
 # ----- Project root ---------------------------------------------------------------------------------
@@ -42,37 +44,18 @@ from typing import Optional
 
 _THIS_FILE = Path(__file__).resolve()
 
-
-def _find_nngpt_root(start: Path) -> Path:
-    """Walk upward from `start` until the nn-gpt project root is located."""
-    for candidate in [start, *start.parents]:
-        if (candidate / "ab" / "gpt" / "conf").is_dir():
-            return candidate
-    raise RuntimeError(
-        f"Could not locate the nn-gpt root above {start}. "
-        f"Expected to find an 'ab/gpt/conf' directory in one of its parents."
-    )
-
-
-NNGPT_DIR   = _find_nngpt_root(_THIS_FILE)
-AB_GPT_DIR  = NNGPT_DIR / "ab" / "gpt"
-CONF_DIR    = AB_GPT_DIR / "conf"
-LLM_CONF_DIR    = CONF_DIR / "llm"
-PROMPT_TEST_DIR = CONF_DIR / "prompt" / "test"
-PROMPT_TRAIN_DIR = CONF_DIR / "prompt" / "train"
-OUT_DIR     = NNGPT_DIR / "out"
-NNGPT_OUT   = OUT_DIR / "nngpt"
+NNGPT_OUT   = out_dir / "nngpt"
 
 # Generated entry scripts are written next to this file, and the module path used
 # to launch them is derived from that location, so the two can never drift apart.
 CURRICULUM_DIR    = _THIS_FILE.parent
-CURRICULUM_MODULE = ".".join(CURRICULUM_DIR.relative_to(NNGPT_DIR).parts)
+CURRICULUM_MODULE = ".".join(CURRICULUM_DIR.relative_to(ab_root_path).parts)
 
 # ----- Base model (original, never modified) ----------------------------------------------------------
 
 BASE_MODEL_NAME = "open-r1/OlympicCoder-7B"
-BASE_MODEL_PATH = OUT_DIR / "llm" / "open-r1" / "OlympicCoder-7B"
-TOKENIZER_CACHE = OUT_DIR / "tokenizer" / "open-r1" / "OlympicCoder-7B"
+BASE_MODEL_PATH = out_dir / "llm" / "open-r1" / "OlympicCoder-7B"
+TOKENIZER_CACHE = out_dir / "tokenizer" / "open-r1" / "OlympicCoder-7B"
 
 # Dynamic override — use merged model from run_config.json if available
 _run_cfg_path = NNGPT_OUT / "run_config.json"
@@ -335,7 +318,7 @@ def get_nn_prefix(dataset: str, level: str, k: int) -> str:
 
 # ----- Progress tracking ------------------------------------------------------------------------------
 def progress_path(dataset: str) -> Path:
-    return OUT_DIR / "curriculum" / dataset / "progress.json"
+    return out_dir / "curriculum" / dataset / "progress.json"
 
 
 def load_progress(dataset: str) -> dict:
@@ -569,7 +552,7 @@ def write_llm_conf(dataset: str, current_model_path: str, dry_run: bool = False)
     """
     dataset_safe = dataset.replace("-", "_")
     conf_name    = f"ds_coder_7b_olympic_ft_{dataset_safe}.json"
-    conf_path    = LLM_CONF_DIR / conf_name
+    conf_path    = conf_llm_dir / conf_name
 
     # Resolve the model path to write into the conf:
     # 1. Use current_model_path if it points to an existing directory
@@ -629,8 +612,8 @@ def write_prompts(dataset: str, level: str, k: int, dry_run: bool = False) -> tu
         )
 
     gen_source_name, train_source_name = PROVEN_PROMPTS[key]
-    gen_source_path   = PROMPT_TEST_DIR  / gen_source_name
-    train_source_path = PROMPT_TRAIN_DIR / train_source_name
+    gen_source_path   = conf_test_dir / gen_source_name
+    train_source_path = conf_train_dir / train_source_name
 
     if not gen_source_path.exists():
         raise FileNotFoundError(
@@ -647,8 +630,8 @@ def write_prompts(dataset: str, level: str, k: int, dry_run: bool = False) -> tu
 
     gen_name   = get_prompt_name(dataset, level, k, is_train=False)
     train_name = get_prompt_name(dataset, level, k, is_train=True)
-    gen_path   = PROMPT_TEST_DIR  / gen_name
-    train_path = PROMPT_TRAIN_DIR / train_name
+    gen_path   = conf_test_dir / gen_name
+    train_path = conf_train_dir / train_name
 
     gen_adapted   = adapt_prompt(gen_source,   dataset, level, k, is_train=False)
     train_adapted = adapt_prompt(train_source, dataset, level, k, is_train=True)
@@ -826,7 +809,7 @@ def run_merge(dry_run: bool = False) -> bool:
 
     result = subprocess.run(
         [sys.executable, "-m", "ab.gpt.util.MergeLLM"],
-        cwd=str(NNGPT_DIR),
+        cwd=str(ab_root_path),
         env=env,
     )
     if result.returncode != 0:
@@ -945,7 +928,7 @@ def run_step(dataset: str, step: dict, progress: dict,
     t_start = time.time()
     result = subprocess.run(
         [sys.executable, "-m", module_path],
-        cwd=str(NNGPT_DIR),
+        cwd=str(ab_root_path),
         env=env,
     )
     elapsed = (time.time() - t_start) / 3600
@@ -975,7 +958,7 @@ def run_step(dataset: str, step: dict, progress: dict,
     clean_epoch_dirs(tracker_backup, dry_run=False)
 
     # ----- Update progress -----
-    merged_model_path = str(OUT_DIR / "llm_to_upload" / "OlympicCoder-7B")
+    merged_model_path = str(out_dir / "llm_to_upload" / "OlympicCoder-7B")
     progress["completed_steps"].append(key)
     progress["current_merged_model"] = merged_model_path
     progress.setdefault("step_results", {})[key] = {
@@ -1014,9 +997,9 @@ def run_curriculum(dataset: str, resume: bool = False, dry_run: bool = False) ->
     log(f"Viable bands: {cfg['viable_bands']}")
     log(f"Dry run:  {dry_run}")
     log(f"Resume:   {resume}")
-    log(f"Root:     {NNGPT_DIR}")
-    log(f"Conf:     {CONF_DIR}")
-    log(f"Out:      {OUT_DIR}")
+    log(f"Root:     {ab_root_path}")
+    log(f"Conf:     {conf_dir}")
+    log(f"Out:      {out_dir}")
     log(f"Module:   {CURRICULUM_MODULE}")
 
     # Check base model exists — download if needed
@@ -1185,12 +1168,12 @@ Example command lines:
 
     if args.show_paths:
         log(f"This file:        {_THIS_FILE}")
-        log(f"NNGPT_DIR:        {NNGPT_DIR}")
-        log(f"CONF_DIR:         {CONF_DIR}          exists={CONF_DIR.is_dir()}")
-        log(f"LLM_CONF_DIR:     {LLM_CONF_DIR}      exists={LLM_CONF_DIR.is_dir()}")
-        log(f"PROMPT_TEST_DIR:  {PROMPT_TEST_DIR}   exists={PROMPT_TEST_DIR.is_dir()}")
-        log(f"PROMPT_TRAIN_DIR: {PROMPT_TRAIN_DIR}  exists={PROMPT_TRAIN_DIR.is_dir()}")
-        log(f"OUT_DIR:          {OUT_DIR}           exists={OUT_DIR.is_dir()}")
+        log(f"NNGPT_DIR:        {ab_root_path}")
+        log(f"CONF_DIR:         {conf_dir}          exists={conf_dir.is_dir()}")
+        log(f"LLM_CONF_DIR:     {conf_llm_dir}      exists={conf_llm_dir.is_dir()}")
+        log(f"PROMPT_TEST_DIR:  {conf_test_dir}   exists={conf_test_dir.is_dir()}")
+        log(f"PROMPT_TRAIN_DIR: {conf_train_dir}  exists={conf_train_dir.is_dir()}")
+        log(f"OUT_DIR:          {out_dir}           exists={out_dir.is_dir()}")
         log(f"BASE_MODEL_PATH:  {BASE_MODEL_PATH}   exists={BASE_MODEL_PATH.is_dir()}")
         log(f"TOKENIZER_CACHE:  {TOKENIZER_CACHE}   exists={TOKENIZER_CACHE.is_dir()}")
         log(f"CURRICULUM_DIR:   {CURRICULUM_DIR}")
