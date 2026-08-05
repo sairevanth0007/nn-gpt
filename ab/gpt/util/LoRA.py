@@ -279,7 +279,7 @@ class LoRA:
                 sft_config = SFTConfig(**self.training_args.to_dict())
                 sft_config.remove_unused_columns = False  # critical when using raw text
                 sft_config.packing = use_packing  # Simple: True, Precise: False
-                sft_config.max_length = sft_max_length
+                sft_config.max_length = 4096  # CHANGED 2026-05-31: was 8192, reduced to 4096 to cut activation memory / fix OOM (bpscrohit). DeepSeek-Coder-7B-Instruct-v1.5 has ~4K context (4k/4.1k). Renamed max_seq_length -> max_length per upstream TRL API update.
                 if has_text_field:
                     sft_config.dataset_text_field = "text"  # Feed Dataset with {"text": ...} format
                 self.training_args = sft_config
@@ -369,7 +369,7 @@ class LoRA:
         print(f"Tokenizer saved to {output_dir}")
 
         # Free memory for merging weights
-        # del self.model
-        # del trainer
+        # del self.model  (peft_model still holds a ref, so this would not free GPU memory)
+        del trainer
         release_memory()
         return self.peft_model

@@ -6,6 +6,7 @@ import re
 from transformers import PreTrainedTokenizer, PreTrainedModel, pipeline
 from ab.gpt.util.GenerationDType import align_generation_head_dtype, infer_generation_head_dtype
 from ab.gpt.util.Util import extract_code, extract_hyperparam, extract_transform, extract_all_to_train
+from ab.gpt.util.prompt.Prompt import DEFAULT_CHAT_TEMPLATE
 import torch
 
 extra_instructions = (
@@ -105,6 +106,15 @@ class ChatBot:
         self.system_prompt = system_prompt
         self.disable_chat_template = _env_flag("NNGPT_DISABLE_CHAT_TEMPLATE")
         self.strip_think_output = _env_flag("NNGPT_STRIP_THINK_OUTPUT")
+
+        # Tokenizers for models like ABrain/NNGPT-UniqueArch-Rag ship without a
+        # chat_template, so apply_chat_template raises ValueError during generation
+        # (swallowed as "no code generated"). Apply the same User/Assistant fallback
+        # used for the training-data build so training and inference prompt formats match.
+        # Tokenizers that already define chat_template (Qwen, DeepSeek, ...) are untouched.
+        if not self.disable_chat_template and not getattr(self.tokenizer, "chat_template", None):
+            print("[ChatBot] Tokenizer has no chat_template; applying default User/Assistant fallback.")
+            self.tokenizer.chat_template = DEFAULT_CHAT_TEMPLATE
         
         # Check if model is ONNX (wrapped or direct ORTModel)
         self.is_onnx = (
@@ -144,6 +154,72 @@ class ChatBot:
         
         if self.__keep_memory:
             self.__messages = []
+
+        self._raise_vocab_bound()
+
+    def _raise_vocab_bound(self):
+        """Make tokenizer.vocab_size report the TRUE embedding bound.
+
+        The batch/direct generation guards clamp any token id >= vocab_size to
+        EOS. For models like deepseek-coder, tokenizer.vocab_size is the base BPE
+        size (e.g. 100000) which EXCLUDES added special tokens, while the chat
+        template prepends BOS id 100000 — so the BOS gets clamped to EOS and every
+        prompt is corrupted, yielding zero generated NNs. The embedding table
+        actually has config.vocab_size rows (e.g. 102400), so the id is valid.
+
+        HF tokenizer.vocab_size is a read-only @property on the class, so a plain
+        instance assignment does not stick; fall back to a per-instance subclass
+        (class swap). Never blocks construction on failure."""
+        try:
+            tok = self.tokenizer
+            old = tok.vocab_size
+            cfg_vocab = getattr(getattr(self.model, 'config', None), 'vocab_size', 0) or 0
+            true_bound = max(len(tok), cfg_vocab)
+            if true_bound <= old:
+                return
+
+            mechanism = None
+            try:
+                tok.vocab_size = true_bound
+            except (AttributeError, TypeError):
+                pass
+            if tok.vocab_size == true_bound:
+                mechanism = 'instance-attr'
+
+            if mechanism is None:
+                _base = type(tok)
+                _Patched = type(
+                    f'{_base.__name__}_VocabBound',
+                    (_base,),
+                    {'vocab_size': property(lambda _self: true_bound)},
+                )
+                tok.__class__ = _Patched
+                if tok.vocab_size == true_bound:
+                    mechanism = 'class-swap'
+
+            if mechanism is None:
+                print(f'[vocab_bound] WARNING: could not raise vocab bound; '
+                      f'readback still {tok.vocab_size} (wanted {true_bound}).', flush=True)
+                return
+            print(f'[vocab_bound] vocab bound raised {old} -> {true_bound} via {mechanism}', flush=True)
+        except Exception as e:  # never block construction
+            print(f'[vocab_bound] WARNING: patch failed ({type(e).__name__}: {e}); '
+                  f'run continues unchanged.', flush=True)
+
+    def _eos_token_ids(self):
+        """eos id(s) for generation, always including <|im_end|> when the tokenizer knows it."""
+        eos = self.tokenizer.eos_token_id
+        if eos is None:
+            ids = []
+        elif isinstance(eos, (list, tuple)):
+            ids = list(eos)
+        else:
+            ids = [eos]
+        im_end = self.tokenizer.convert_tokens_to_ids('<|im_end|>')
+        unk = getattr(self.tokenizer, 'unk_token_id', None)
+        if im_end is not None and im_end != unk and im_end not in ids:
+            ids.append(im_end)
+        return ids or None
 
     def _build_messages(self, user_content: str) -> list:
         """Build a messages list with optional system role prepended."""
@@ -223,7 +299,7 @@ class ChatBot:
                 top_k=self.top_k,
                 top_p=self.top_p,
                 pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
+                eos_token_id=self._eos_token_ids(),
             )
 
         results = []
@@ -256,12 +332,13 @@ class ChatBot:
         if self.__pipeline is not None:
             try:
                 generation_kwargs = {
-                    "max_new_tokens": max_new_tokens,
+                    "max_new_tokens": max_new_tokens or 4096,
                     "do_sample": True,
                     "max_length": max_len,
                     "temperature": self.temperature,
                     "top_k": self.top_k,
                     "top_p": self.top_p,
+                    "eos_token_id": self._eos_token_ids(),
                 }
                 try:
                     out_item = self.__pipeline(
@@ -387,7 +464,7 @@ class ChatBot:
                     top_k=self.top_k,
                     top_p=self.top_p,
                     pad_token_id=self.tokenizer.pad_token_id,
-                    eos_token_id=self.tokenizer.eos_token_id,
+                    eos_token_id=self._eos_token_ids(),
                 )
             
             # FIX: Decode only the generated part (skip input prompt)

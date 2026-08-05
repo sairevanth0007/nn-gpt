@@ -8,6 +8,13 @@ hp_file = 'hp.txt'
 transformer_file = 'tr.py'
 new_out_file = 'full_output.txt'
 
+# Default LEMUR corpus filters — single source of truth for the iterative
+# pipeline. Used both for curation (building the SFT training corpus) and for
+# generation-seed selection (the in-context example models shown to the LLM),
+# so the two paths cannot silently drift apart.
+DEFAULT_DATASET = 'cifar-10'
+DEFAULT_NN_PREFIXES = ('ga-', 'GenFractalNet')
+
 gpt = 'gpt'
 gpt_dir = ab_root_path / base_module / gpt
 conf_dir = gpt_dir / 'conf'
