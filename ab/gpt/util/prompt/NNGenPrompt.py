@@ -128,6 +128,22 @@ class NNGenPrompt(Prompt):
                             f"[WARNING] Could not get column '{db_column}': {e}")
                         para_dict[it['para']] = None
 
+                # Cap only the PROMPT-context code (baseline). Never truncate the
+                # response fields (addon_nn_code / addon_transform_code) — they are
+                # the training target; clipping them produces broken Python labels.
+                # Over-long responses are dropped later by the max_new_tokens filter.
+                # Stash the untouched codes first: the training-target delta
+                # must be computed between the FULL baseline and FULL improved
+                # files (its hunk lives inside train_setup, which the shrunk
+                # prompt still shows verbatim), never between shrunk/capped
+                # views.
+                full_nn_code = para_dict.get('nn_code')
+                full_addon_nn_code = para_dict.get('addon_nn_code')
+
+                if key_dict.get('shrink_nn_code') and isinstance(para_dict.get('nn_code'), str):
+                    from ab.gpt.util.DeltaUtil import shrink_nn_code_for_prompt
+                    para_dict['nn_code'] = shrink_nn_code_for_prompt(para_dict['nn_code'])
+
                 nn_code_max_chars = key_dict.get('nn_code_max_chars')
                 if nn_code_max_chars and 'nn_code' in para_dict and isinstance(para_dict['nn_code'], str):
                     para_dict['nn_code'] = para_dict['nn_code'][:nn_code_max_chars]
@@ -148,8 +164,8 @@ class NNGenPrompt(Prompt):
                 if use_delta and 'addon_nn_code' in para_dict and 'nn_code' in para_dict:
                     try:
                         from ab.gpt.util.DeltaUtil import compute_delta
-                        baseline_code = para_dict.get('nn_code', '')
-                        improved_code = para_dict.get('addon_nn_code', '')
+                        baseline_code = full_nn_code if isinstance(full_nn_code, str) else para_dict.get('nn_code', '')
+                        improved_code = full_addon_nn_code if isinstance(full_addon_nn_code, str) else para_dict.get('addon_nn_code', '')
 
                         if baseline_code and improved_code:
                             computed_delta = compute_delta(
