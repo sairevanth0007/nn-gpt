@@ -95,7 +95,7 @@ def _strip_reasoning_output(text: str) -> str:
 
 class ChatBot:
     def __init__(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, keep_memory=False,
-                 temperature=1.0, top_k=50, top_p=0.9, system_prompt: str = None):
+                 temperature=1.0, top_k=50, top_p=0.9, repetition_penalty=None, system_prompt: str = None):
         self.show_additional_info = False
         self.model = model
         self.tokenizer = tokenizer
@@ -103,6 +103,7 @@ class ChatBot:
         self.temperature = temperature
         self.top_k = top_k
         self.top_p = top_p
+        self.repetition_penalty = repetition_penalty
         self.system_prompt = system_prompt
         self.disable_chat_template = _env_flag("NNGPT_DISABLE_CHAT_TEMPLATE")
         self.strip_think_output = _env_flag("NNGPT_STRIP_THINK_OUTPUT")
@@ -206,6 +207,12 @@ class ChatBot:
             print(f'[vocab_bound] WARNING: patch failed ({type(e).__name__}: {e}); '
                   f'run continues unchanged.', flush=True)
 
+    def _rep_penalty_kwargs(self):
+        """Include repetition_penalty in generate() only when explicitly configured."""
+        if self.repetition_penalty is None:
+            return {}
+        return {"repetition_penalty": self.repetition_penalty}
+
     def _eos_token_ids(self):
         """eos id(s) for generation, always including <|im_end|> when the tokenizer knows it."""
         eos = self.tokenizer.eos_token_id
@@ -298,6 +305,7 @@ class ChatBot:
                 temperature=self.temperature,
                 top_k=self.top_k,
                 top_p=self.top_p,
+                **self._rep_penalty_kwargs(),
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self._eos_token_ids(),
             )
@@ -339,6 +347,7 @@ class ChatBot:
                     "top_k": self.top_k,
                     "top_p": self.top_p,
                     "eos_token_id": self._eos_token_ids(),
+                    **self._rep_penalty_kwargs(),
                 }
                 try:
                     out_item = self.__pipeline(
@@ -463,6 +472,7 @@ class ChatBot:
                     temperature=self.temperature,
                     top_k=self.top_k,
                     top_p=self.top_p,
+                    **self._rep_penalty_kwargs(),
                     pad_token_id=self.tokenizer.pad_token_id,
                     eos_token_id=self._eos_token_ids(),
                 )

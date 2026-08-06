@@ -2204,6 +2204,15 @@ def main():
     parser.add_argument("--num_train_epochs", type=int, default=5,
                         help="Number of fine-tuning epochs per cycle (default: 5)")
 
+    # Prompt-config override for the inner NN-generation subprocess. Needed for
+    # short-context models whose context cannot hold the full NN_gen.json prompt:
+    # DeepSeek (8k) -> NN_gen_cap.json, Mistral (4k) -> NN_gen_shortctx.json.
+    # When unset, the subprocess falls back to its default NN_gen.json.
+    parser.add_argument("--nn_gen_conf", type=str, default=None,
+                        help="Prompt config filename for the inner NN-generation subprocess "
+                             "(e.g. NN_gen_cap.json for DeepSeek 8k, NN_gen_shortctx.json for "
+                             "Mistral 4k). Default: None -> subprocess uses NN_gen.json.")
+
     args = parser.parse_args()
 
     # Validate resume cycle
@@ -2227,6 +2236,7 @@ def main():
         max_retries=args.max_retries,
         use_optimized_training=args.use_optimized_training,
         num_train_epochs=args.num_train_epochs,
+        nn_gen_conf=args.nn_gen_conf,
     )
 
     # Run pipeline

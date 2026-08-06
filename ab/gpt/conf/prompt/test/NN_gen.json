@@ -49,6 +49,7 @@
     ],
     "no_repeat": [],
     "keep_same": [],
+    "nn_prefixes": ["ga-"],
     "prompt": [
       "Provide the training hyperparameters (as a JSON object between XML tags <hp> and </hp>), corresponding transformer code (as a Python code between XML tags <tr> and </tr>) and neural network model (as a Python code between XML tags <nn> and </nn>) that achieves a maximum value for the metric '{metric}' after first epoch of training on the '{dataset}' dataset for the task '{task}'.",
       "1. Training hyperparameters (JSON object between XML tags <hp> and </hp>):",

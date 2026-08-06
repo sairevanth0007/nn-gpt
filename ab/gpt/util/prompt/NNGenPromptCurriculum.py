@@ -39,7 +39,10 @@ class NNGenPrompt(Prompt):
             if not isinstance(transform_code, str) or not transform_code.strip():
                 raise ValueError(f"transform_code missing or empty for model at position {i}")
 
-            truncate = cfg.get("nn_code_truncate") if cfg else None
+            # Honor both key names: NN_gen_cap.json declares 'nn_code_max_chars',
+            # while this builder historically read 'nn_code_truncate'. Accept either
+            # so the seed cap actually fires and prompts stay within the input budget.
+            truncate = (cfg.get("nn_code_truncate") or cfg.get("nn_code_max_chars")) if cfg else None
             nn_code_packed = (
                 nn_code[:truncate] + "\n# ... [truncated]"
                 if truncate and len(nn_code) > truncate
