@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ab.gpt.brute.fract.backbone.NNAlterBN import alter
-from ab.gpt.NNEval import main as eval_main
+from ab.gpt.act.eval.Eval import main as eval_main
 from ab.gpt.util.Const import nngpt_dir, synth_dir, epoch_dir
 
 # ──────────────────────────────────────────────────────────────────────────────
