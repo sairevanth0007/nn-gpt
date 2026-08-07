@@ -428,7 +428,6 @@ use_backbone={use_backbone}, enable_merge={enable_merge}, classification_mode={c
             max_input_length=max_input_length,
             only_best_accuracy=only_best_accuracy,
             load_in_4bit=load_in_4bit,
-            num_cycles=num_cycles,
             data_dir=data_dir,
             epoch_root=epoch_root,
         )
