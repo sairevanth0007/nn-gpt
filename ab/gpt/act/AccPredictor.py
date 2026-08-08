@@ -25,8 +25,10 @@ import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr, spearmanr
 from ab.nn.util.Const import out_dir
-from ab.gpt.zero_cost_proxies import PROXY_NAMES, normalize_proxy_value, compute_proxies
-from ab.gpt.semantic_retrieval import SemanticIndex
+from ab.gpt.util.method.zero_cost_proxies import PROXY_NAMES, normalize_proxy_value, compute_proxies
+# NOTE: ab.gpt.semantic_retrieval (SemanticIndex) is imported lazily inside
+# prepare_llm_datasets only when USE_SEMANTIC_RETRIEVAL is True, so the module
+# is not a hard dependency of this file (the feature is off by default).
 
 try:
     from unsloth import FastLanguageModel
@@ -1026,8 +1028,9 @@ def prepare_llm_datasets(
         proxy_norm_stats = _load_proxy_norm_stats(PROXY_NORM_STATS_PATH)
         print(f"Loaded zero-cost proxy cache: {len(proxy_cache)} architectures")
 
-    semantic_index: Optional[SemanticIndex] = None
+    semantic_index = None
     if USE_SEMANTIC_RETRIEVAL:
+        from ab.gpt.semantic_retrieval import SemanticIndex
         semantic_index = SemanticIndex.load()
         print(f"Loaded semantic embedding index: {len(semantic_index.all_meta)} architectures, "
               f"{len(semantic_index._train_keys)} in the training (retrievable) pool")
