@@ -202,6 +202,12 @@ def nn_gen(
                     accuracy=para_dict.get("accuracy", row.get("accuracy", "")),
                     target_pattern=target_pattern,
                 )
+            if key_config.get("shrink_nn_code") and "nn_code" in para_dict and isinstance(para_dict["nn_code"], str):
+                # Show the LLM only the LLR-relevant slice of the baseline
+                # (train_setup/learn + headers). The delta is still applied
+                # to the FULL baseline from origdf['nn_code'] below.
+                from ab.gpt.util.DeltaUtil import shrink_nn_code_for_prompt
+                para_dict["nn_code"] = shrink_nn_code_for_prompt(para_dict["nn_code"])
             if nn_code_max_chars and "nn_code" in para_dict and isinstance(para_dict["nn_code"], str):
                 para_dict["nn_code"] = para_dict["nn_code"][:nn_code_max_chars]
 
