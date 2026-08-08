@@ -1017,12 +1017,25 @@ def prepare_llm_datasets(
     proxy_cache: dict = {}
     proxy_norm_stats: dict = {}
     if USE_ZERO_COST_PROXIES:
-        if not PROXY_CACHE_PATH.exists() or not PROXY_NORM_STATS_PATH.exists():
-            raise FileNotFoundError(
-                "USE_ZERO_COST_PROXIES is True but proxy cache/stats are missing "
-                f"(expected {PROXY_CACHE_PATH} and {PROXY_NORM_STATS_PATH}). "
-                "Run compute_proxy_cache.py then fit_proxy_normalization.py first, "
-                "or set USE_ZERO_COST_PROXIES = False to run the baseline (no-proxy) pipeline."
+        # Auto-build the proxy cache + normalization stats on first run so the
+        # whole thing runs in one command. Both are cached to disk, so this
+        # cost is paid once; later runs just load them. The cache build is
+        # resumable if interrupted. (Formerly this raised and required running
+        # compute_proxy_cache.py + fit_proxy_normalization.py by hand.)
+        if not PROXY_CACHE_PATH.exists():
+            print("Zero-cost proxy cache missing -- building it now "
+                  "(one-time, cached for future runs; resumable)...")
+            from ab.gpt.util.method.compute_proxy_cache import build_proxy_cache
+            build_proxy_cache(input_path=input_path, cache_path=PROXY_CACHE_PATH)
+        if not PROXY_NORM_STATS_PATH.exists():
+            print("Proxy normalization stats missing -- fitting them now (train-family only)...")
+            from ab.gpt.util.method.fit_proxy_normalization import fit_and_save_norm_stats
+            fit_and_save_norm_stats(
+                raw_path=input_path,
+                cache_path=PROXY_CACHE_PATH,
+                stats_path=PROXY_NORM_STATS_PATH,
+                family_fn=infer_arch_family,
+                train_families=TRAIN_ARCH_FAMILIES,
             )
         proxy_cache = _load_proxy_cache(PROXY_CACHE_PATH)
         proxy_norm_stats = _load_proxy_norm_stats(PROXY_NORM_STATS_PATH)
