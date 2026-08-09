@@ -1,17 +1,22 @@
 """
-Layerwise Learning Rate Model Generator — Batch 2 (~1000 CV Models)
+Layerwise Learning Rate Model Generator — Batch 3 (~1000 CV Models)
 
-Second batch of layerwise LR strategies extending layerwise_lr.py:
-  - Inverted decay    : head gets LOWER LR than backbone (anti-freeze)
-  - Asymmetric splits : 90/10, 80/20 — very small head gets full LR
-  - Cosine-spaced     : multipliers follow a cosine curve backbone→head
-  - More groups       : 6-group linear / exponential decay shapes
-  - Cyclic grouping   : even/odd layers alternate between two LR values
+Third batch of layerwise LR strategies — new mathematical families not
+covered by batches 1 & 2:
+  - Geometric multipliers   : power-of-2 decay / inverted
+  - Non-monotone            : V-shaped (middle fastest), plateau
+  - Step functions          : hard freeze at backbone or head
+  - Skewed split ratios     : backbone-heavy 60/30/10, head-heavy 10/30/60
+  - Top-N full LR           : only last 2 groups at 1.0×
+  - Geometric split ratios  : group sizes halve each step
+  - Gentle 2-group          : 0.5× backbone (mild regularisation)
+  - Very tiny head          : 95/5 split
+  - Inverted cosine 6-group : cosine curve with backbone-high direction
 
-Math: 29 archs × 13 strategies × 3 datasets = 1131 potential; ~1000 after skips.
+Math: 29 archs × 14 strategies × 3 datasets = 1218 potential; ~400 after skips.
 
 Usage:
-    python -m ab.gpt.brute.lr.layerwise_lr2
+    python -m ab.gpt.brute.llr.layerwise_lr3
 """
 
 import ast
@@ -23,7 +28,7 @@ from ab.gpt.brute.lr.schedulers import (
     _find_method_range,
     read_architecture_source,
 )
-from ab.gpt.brute.lr.layerwise_lr import (
+from ab.gpt.brute.llr.layerwise_lr import (
     ARCHITECTURES,
     ARCH_EXTRA_HP_DEFAULTS,
     DATASETS,
@@ -36,163 +41,153 @@ from ab.gpt.brute.lr.layerwise_lr import (
 
 
 # ---------------------------------------------------------------------------
-# Layerwise LR strategies — batch 2
+# Layerwise LR strategies — batch 3
 #
-# 'type' == 'n_group' → contiguous parameter slices by split_ratios.
-# 'type' == 'cyclic'  → even/odd layer indices cycle through multipliers;
-#                       split_ratios is None for cyclic strategies.
+# New mathematical families vs batches 1 & 2:
+#   geometric multipliers, non-monotone shapes, step functions,
+#   skewed split ratios, geometric split ratios, gentle / extreme splits.
 #
-# Cosine-spaced multiplier formula (min=0.1, max=1.0, i = 0..n−1):
-#   m_i = 0.1 + 0.9 * (1 − cos(π·i / (n−1))) / 2
+# Inverted cosine 6-group multipliers (backbone-high, head-low):
+#   m_i = 0.1 + 0.9 * (1 − cos(π·(n−1−i) / (n−1))) / 2
+#   → [1.0, 0.914, 0.689, 0.411, 0.186, 0.1]
 # ---------------------------------------------------------------------------
 LAYERWISE_STRATEGIES = [
-    # ── Inverted decay: head gets LOWER LR (anti-freeze) ───────────────────
+    # ── Gentle 2-group (mild regularisation) ────────────────────────────────
     {
-        'name': 'llr2_2grp_inv_01x',
+        'name': 'llr3_2grp_05x',
         'type': 'n_group',
         'n_groups': 2,
-        'multipliers': [1.0, 0.1],
+        'multipliers': [0.5, 1.0],
         'split_ratios': [0.5, 0.5],
-        'description': 'Inverted 50/50: backbone 1.0×, head 0.1× (anti-freeze).',
+        'description': '50/50 split: backbone 0.5×, head 1.0× (gentle freeze).',
     },
     {
-        'name': 'llr2_2grp_inv_001x',
+        'name': 'llr3_2grp_inv_05x',
         'type': 'n_group',
         'n_groups': 2,
-        'multipliers': [1.0, 0.01],
+        'multipliers': [1.0, 0.5],
         'split_ratios': [0.5, 0.5],
-        'description': 'Inverted 50/50: backbone 1.0×, head 0.01× (strong anti-freeze).',
+        'description': '50/50 inverted: backbone 1.0×, head 0.5× (gentle anti-freeze).',
     },
+    # ── Very tiny head ───────────────────────────────────────────────────────
     {
-        'name': 'llr2_3grp_inv_exp',
+        'name': 'llr3_2grp_95_5',
+        'type': 'n_group',
+        'n_groups': 2,
+        'multipliers': [0.1, 1.0],
+        'split_ratios': [0.95, 0.05],
+        'description': '95/5 split: 95% backbone at 0.1×, tiny 5% head at 1.0×.',
+    },
+    # ── Step functions: hard freeze except one region ────────────────────────
+    {
+        'name': 'llr3_3grp_step_head',
         'type': 'n_group',
         'n_groups': 3,
-        'multipliers': [1.0, 0.1, 0.01],
+        'multipliers': [0.1, 0.1, 1.0],
         'split_ratios': [1/3, 1/3, 1/3],
-        'description': '3 equal groups inverted-exp: backbone 1.0×, mid 0.1×, head 0.01×.',
+        'description': '3 equal groups step-at-head: backbone+mid 0.1×, head 1.0×.',
     },
     {
-        'name': 'llr2_4grp_inv_lin',
+        'name': 'llr3_3grp_step_back',
         'type': 'n_group',
-        'n_groups': 4,
-        'multipliers': [1.0, 0.6, 0.3, 0.1],
-        'split_ratios': [0.25, 0.25, 0.25, 0.25],
-        'description': '4 equal groups inverted-linear: 1.0×, 0.6×, 0.3×, 0.1× (head slowest).',
+        'n_groups': 3,
+        'multipliers': [1.0, 0.1, 0.1],
+        'split_ratios': [1/3, 1/3, 1/3],
+        'description': '3 equal groups step-at-backbone: backbone 1.0×, mid+head 0.1×.',
     },
-    # ── Asymmetric splits: very small head ──────────────────────────────────
+    # ── Skewed split ratios ──────────────────────────────────────────────────
     {
-        'name': 'llr2_2grp_90_10',
-        'type': 'n_group',
-        'n_groups': 2,
-        'multipliers': [0.1, 1.0],
-        'split_ratios': [0.9, 0.1],
-        'description': '90/10 split: 90% backbone at 0.1×, tiny 10% head at 1.0×.',
-    },
-    {
-        'name': 'llr2_2grp_80_20',
-        'type': 'n_group',
-        'n_groups': 2,
-        'multipliers': [0.1, 1.0],
-        'split_ratios': [0.8, 0.2],
-        'description': '80/20 split: 80% backbone at 0.1×, 20% head at 1.0×.',
-    },
-    {
-        'name': 'llr2_3grp_80_10_10',
+        'name': 'llr3_3grp_60_30_10',
         'type': 'n_group',
         'n_groups': 3,
         'multipliers': [0.01, 0.1, 1.0],
-        'split_ratios': [0.8, 0.1, 0.1],
-        'description': '80/10/10: large backbone 0.01×, small mid 0.1×, tiny head 1.0×.',
+        'split_ratios': [0.6, 0.3, 0.1],
+        'description': '60/30/10 backbone-heavy: large frozen backbone, small full-LR head.',
     },
-    # ── Cosine-spaced multipliers (backbone→head) ────────────────────────────
     {
-        'name': 'llr2_3grp_cos',
+        'name': 'llr3_3grp_10_30_60',
         'type': 'n_group',
         'n_groups': 3,
-        'multipliers': [0.1, 0.55, 1.0],
-        'split_ratios': [1/3, 1/3, 1/3],
-        'description': '3 equal groups cosine-spaced: 0.1×, 0.55×, 1.0×.',
+        'multipliers': [0.01, 0.1, 1.0],
+        'split_ratios': [0.1, 0.3, 0.6],
+        'description': '10/30/60 head-heavy: small backbone group, large full-LR head.',
     },
+    # ── Geometric multipliers (power-of-2) ───────────────────────────────────
     {
-        'name': 'llr2_4grp_cos',
+        'name': 'llr3_4grp_geo_mults',
         'type': 'n_group',
         'n_groups': 4,
-        'multipliers': [0.1, 0.325, 0.775, 1.0],
+        'multipliers': [0.125, 0.25, 0.5, 1.0],
         'split_ratios': [0.25, 0.25, 0.25, 0.25],
-        'description': '4 equal groups cosine-spaced: 0.1×, 0.325×, 0.775×, 1.0×.',
+        'description': '4 equal groups geometric (×2 each step): 0.125×, 0.25×, 0.5×, 1.0×.',
     },
-    # ── More groups: 6 ──────────────────────────────────────────────────────
     {
-        'name': 'llr2_6grp_lin',
+        'name': 'llr3_4grp_geo_mults_inv',
+        'type': 'n_group',
+        'n_groups': 4,
+        'multipliers': [1.0, 0.5, 0.25, 0.125],
+        'split_ratios': [0.25, 0.25, 0.25, 0.25],
+        'description': '4 equal groups inverted geometric: 1.0×, 0.5×, 0.25×, 0.125× (head slowest).',
+    },
+    # ── Geometric split ratios (groups halve in size) ────────────────────────
+    {
+        'name': 'llr3_4grp_geo_splits',
+        'type': 'n_group',
+        'n_groups': 4,
+        'multipliers': [0.1, 0.3, 0.6, 1.0],
+        'split_ratios': [0.5, 0.25, 0.125, 0.125],
+        'description': '4 groups geometric-sized (50/25/12.5/12.5): linear mults 0.1→1.0.',
+    },
+    # ── Top-2 groups at full LR ──────────────────────────────────────────────
+    {
+        'name': 'llr3_4grp_top2_full',
+        'type': 'n_group',
+        'n_groups': 4,
+        'multipliers': [0.01, 0.01, 1.0, 1.0],
+        'split_ratios': [0.25, 0.25, 0.25, 0.25],
+        'description': '4 equal groups: bottom-2 at 0.01×, top-2 at 1.0× (step at midpoint).',
+    },
+    # ── Non-monotone shapes ──────────────────────────────────────────────────
+    {
+        'name': 'llr3_5grp_vshaped',
+        'type': 'n_group',
+        'n_groups': 5,
+        'multipliers': [0.1, 0.5, 1.0, 0.5, 0.1],
+        'split_ratios': [0.2, 0.2, 0.2, 0.2, 0.2],
+        'description': '5 equal groups V-shaped: extremes 0.1×, centre 1.0× (middle layers fastest).',
+    },
+    {
+        'name': 'llr3_5grp_plateau',
+        'type': 'n_group',
+        'n_groups': 5,
+        'multipliers': [0.1, 1.0, 1.0, 1.0, 0.1],
+        'split_ratios': [0.2, 0.2, 0.2, 0.2, 0.2],
+        'description': '5 equal groups plateau: extremes 0.1×, inner 3 at 1.0× (plateau shape).',
+    },
+    # ── Inverted cosine 6-group (backbone-high direction) ───────────────────
+    {
+        'name': 'llr3_6grp_cos_inv',
         'type': 'n_group',
         'n_groups': 6,
-        'multipliers': [0.1, 0.28, 0.46, 0.64, 0.82, 1.0],
+        'multipliers': [1.0, 0.914, 0.689, 0.411, 0.186, 0.1],
         'split_ratios': [1/6, 1/6, 1/6, 1/6, 1/6, 1/6],
-        'description': '6 equal groups linear-spaced 0.1→1.0 (step 0.18).',
+        'description': '6 equal groups cosine-spaced inverted: 1.0→0.1× (backbone-high).',
     },
-    {
-        'name': 'llr2_6grp_exp',
-        'type': 'n_group',
-        'n_groups': 6,
-        'multipliers': [0.00001, 0.0001, 0.001, 0.01, 0.1, 1.0],
-        'split_ratios': [1/6, 1/6, 1/6, 1/6, 1/6, 1/6],
-        'description': '6 equal groups log-spaced: 1e-5, 1e-4, 1e-3, 0.01, 0.1, 1.0.',
-    },
-    # ── Cyclic grouping: even/odd layer indices alternate ────────────────────
-    {
-        'name': 'llr2_cyclic_01x',
-        'type': 'cyclic',
-        'n_groups': 2,
-        'multipliers': [0.1, 1.0],
-        'split_ratios': None,
-        'description': 'Cyclic 2-way: even-indexed layers 0.1×, odd-indexed layers 1.0×.',
-    },
-    {
-        'name': 'llr2_cyclic_001x',
-        'type': 'cyclic',
-        'n_groups': 2,
-        'multipliers': [0.01, 1.0],
-        'split_ratios': None,
-        'description': 'Cyclic 2-way: even-indexed layers 0.01×, odd-indexed layers 1.0×.',
-    },
-]  # 13 strategies × 29 archs × 3 datasets = 1131 potential model dirs
+]  # 14 strategies × 29 archs × 3 datasets = 1218 potential model dirs
 
 
 # ---------------------------------------------------------------------------
-# Code generation helpers
+# Code generation — identical to layerwise_lr2.py (n_group only in batch 3)
 # ---------------------------------------------------------------------------
 
 def _build_grouping_code(strategy: dict) -> str:
-    """
-    Return Python source lines (8-space indent for a method body) that build
-    _llr_groups — the per-group parameter list passed to the optimizer.
-
-    Supports 'n_group' (contiguous slices via split_ratios) and
-    'cyclic' (even/odd alternation through multipliers).
-    """
     name = strategy['name']
+    split_ratios = strategy['split_ratios']
     multipliers = strategy['multipliers']
 
     def _fmt(v):
         return f'{v:.10g}'
 
-    if strategy['type'] == 'cyclic':
-        n_cycle = len(multipliers)
-        mults_str = '[' + ', '.join(_fmt(m) for m in multipliers) + ']'
-        lines = [
-            f"        # Layerwise LR strategy: {name} (cyclic)",
-            f"        _llr_params = list(self.named_parameters())",
-            f"        _llr_cycle = {mults_str}",
-            f"        _llr_buckets = {{}}",
-            f"        for _llr_i, (_, _llr_p) in enumerate(_llr_params):",
-            f"            _llr_m = _llr_cycle[_llr_i % {n_cycle}]",
-            f"            _llr_buckets.setdefault(_llr_m, []).append(_llr_p)",
-            f"        _llr_groups = [{{'params': _llr_ps, 'lr': prm.get('lr', 0.01) * _llr_m}} for _llr_m, _llr_ps in _llr_buckets.items()]",
-        ]
-        return '\n'.join(lines)
-
-    # n_group: contiguous slices by split_ratios
-    split_ratios = strategy['split_ratios']
     ratios_str = '[' + ', '.join(_fmt(r) for r in split_ratios) + ']'
     mults_str  = '[' + ', '.join(_fmt(m) for m in multipliers) + ']'
     lines = [
@@ -219,23 +214,10 @@ def _build_grouping_code(strategy: dict) -> str:
 def inject_layerwise_lr(source_code: str, strategy: dict):
     """
     Inject layerwise LR grouping into train_setup() of the architecture source.
-
-    For 'uniform' strategies returns source unchanged.
-    For 'n_group' and 'cyclic':
-      1. Locate class Net and its train_setup method.
-      2. Find the self.optimizer = ... block.
-      3. Confirm self.parameters() appears in that block.
-      4. Insert _llr_groups construction code before the optimizer line.
-      5. Replace self.parameters() with _llr_groups.
-
     Returns modified source string, or None if injection is not possible.
     """
-    if strategy['type'] == 'uniform':
-        return source_code
-
     lines = source_code.split('\n')
 
-    # Find class Net
     class_indent = 0
     found_class = False
     for line in lines:
@@ -247,13 +229,11 @@ def inject_layerwise_lr(source_code: str, strategy: dict):
     if not found_class:
         return None
 
-    # Find train_setup method
     ts_range = _find_method_range(lines, 'train_setup', class_indent)
     if ts_range is None:
         return None
     ts_start, ts_end = ts_range
 
-    # Find optimizer block
     result = _find_optimizer_block(lines, ts_start, ts_end)
     if result is None:
         return None
@@ -286,16 +266,16 @@ def inject_layerwise_lr(source_code: str, strategy: dict):
 # Main generation loop
 # ---------------------------------------------------------------------------
 
-def generate_models(output_base_dir: str, prefix: str = 'llr2') -> int:
+def generate_models(output_base_dir: str, prefix: str = 'llr3') -> int:
     """
-    Generate batch-2 layerwise-LR model variants and write to output_base_dir.
+    Generate batch-3 layerwise-LR model variants and write to output_base_dir.
 
-    Directory layout per model (identical to layerwise_lr.py):
+    Same layout as batches 1 & 2:
         <prefix>_NNNN/
             new_nn.py       – modified architecture code
             hp.txt          – JSON hyperparameter dict
             model_meta.txt  – human-readable metadata
-            dataframe.df    – pandas Series pickle (task/dataset/metric for NNEval)
+            dataframe.df    – pandas Series pickle for NNEval
 
     Returns the number of model directories successfully written.
     """
@@ -339,11 +319,14 @@ def generate_models(output_base_dir: str, prefix: str = 'llr2') -> int:
             model_code = inject_layerwise_lr(source_code, strategy)
             if model_code is None:
                 print(f"  [SKIP] {arch} / {strategy['name']}: no self.parameters() or injection failed")
-                arch_skip += len(DATASETS)
-                total_skipped += len(DATASETS)
+                arch_skip += 1
+                total_skipped += 1
                 continue
 
-            for dataset_cfg in DATASETS:
+            # ONE dir per (arch, strategy). Code is dataset-independent, so the
+            # evaluator fans it out over datasets via `NNEval --datasets ...`
+            # (one stat row each) instead of duplicating the dir per dataset.
+            for dataset_cfg in DATASETS[:1]:
                 model_name = f"{prefix}_{model_idx:04d}"
                 model_dir = output_base / model_name
                 model_dir.mkdir(parents=True, exist_ok=True)
@@ -355,18 +338,13 @@ def generate_models(output_base_dir: str, prefix: str = 'llr2') -> int:
                     json.dumps(hp_dict, indent=2), encoding='utf-8'
                 )
 
-                split_ratios_repr = (
-                    [round(r, 6) for r in strategy['split_ratios']]
-                    if strategy['split_ratios'] is not None
-                    else None
-                )
                 meta_lines = [
                     f"architecture: {arch}",
                     f"strategy: {strategy['name']}",
                     f"strategy_type: {strategy['type']}",
                     f"n_groups: {strategy['n_groups']}",
                     f"multipliers: {strategy['multipliers']}",
-                    f"split_ratios: {split_ratios_repr}",
+                    f"split_ratios: {[round(r, 6) for r in strategy['split_ratios']]}",
                     f"dataset: {dataset_cfg['name']}",
                     f"task: {dataset_cfg['task']}",
                     f"metric: {dataset_cfg['metric']}",
@@ -409,20 +387,20 @@ def main():
         import shutil
         removed = 0
         for d in output_dir.iterdir():
-            if d.is_dir() and d.name.startswith('llr2_'):
+            if d.is_dir() and d.name.startswith('llr3_'):
                 shutil.rmtree(d)
                 removed += 1
         if removed:
-            print(f"Cleaned {removed} existing llr2_ model directories.\n")
+            print(f"Cleaned {removed} existing llr3_ model directories.\n")
 
-    total = generate_models(str(output_dir), prefix='llr2')
+    total = generate_models(str(output_dir), prefix='llr3')
     print(f"\nDone. Generated {total} model directories ready for NNEval.")
     print()
     print("To evaluate (dataframe.df resolves dataset per model automatically):")
     print(
-        "  PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True "
-        "python -m ab.gpt.act.eval.Eval --only_epoch 0 --nn_train_epochs 5 "
-        "--nn_name_prefix llr2"
+        "  PYTORCH_CUDA_ALLOC_ALLOC_CONF=expandable_segments:True "
+        "python -m ab.gpt.NNEval --nn_name_prefix llr3 --nn_train_epochs 1 "
+        "--prm_json '{\"batch\": 32}'"
     )
 
 
