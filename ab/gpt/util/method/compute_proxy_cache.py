@@ -1,22 +1,11 @@
 #!/usr/bin/env python3
 """
-Batch-compute zero-cost proxies over the whole preprocessed dataset and cache
-the results to disk (Step 2 of IMPROVEMENT_PLAN_Zero_Cost_Proxies.md).
+Compute zero-cost proxies for every unique (nn, dataset) and cache them to disk.
+Deduplicates by architecture (proxies don't depend on hyperparameters) and is
+resumable (JSONL append, skips already-cached keys).
 
-Deduplicates by (nn, dataset) before computing -- proxies are architecture-
-intrinsic (they depend on nn_code + input shape, not on hyperparameters or
-data transforms), and LEMUR repeats the same architecture across many
-(prm_id, transform_id) combinations, so computing per-row would waste most of
-the work on exact duplicates (~6350 rows -> ~1550 unique (nn, dataset) pairs).
-
-Resumable by construction: the cache file is JSONL, appended to incrementally,
-and already-cached (nn, dataset) keys are skipped on restart.
-
-Two ways to use it:
-  * As a library:  build_proxy_cache(input_path, cache_path)   <- called
-    automatically by AccPredictor.prepare_llm_datasets when the cache is
-    missing, so the whole pipeline runs in one command.
-  * Standalone:    python -m ab.gpt.util.method.compute_proxy_cache
+Use build_proxy_cache() as a library, or run standalone:
+    python -m ab.gpt.util.method.compute_proxy_cache
 """
 
 from __future__ import annotations
@@ -76,11 +65,9 @@ def build_proxy_cache(
     limit: Optional[int] = None,
     verbose: bool = True,
 ) -> Path:
-    """Compute + cache zero-cost proxies for every unique (nn, dataset) in
-    input_path, appending to cache_path (resumable). Returns cache_path.
-
-    limit: if set, only compute this many *new* architectures (used for quick
-    tests). device: torch device; defaults to torch_device()."""
+    """Compute and cache proxies for every unique (nn, dataset) in input_path,
+    appending to cache_path (resumable). limit caps how many new architectures
+    to compute."""
     input_path = Path(input_path)
     cache_path = Path(cache_path)
     if not input_path.exists():

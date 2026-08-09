@@ -26,9 +26,7 @@ import pandas as pd
 from scipy.stats import pearsonr, spearmanr
 from ab.nn.util.Const import out_dir
 from ab.gpt.util.method.zero_cost_proxies import PROXY_NAMES, normalize_proxy_value, compute_proxies
-# NOTE: ab.gpt.semantic_retrieval (SemanticIndex) is imported lazily inside
-# prepare_llm_datasets only when USE_SEMANTIC_RETRIEVAL is True, so the module
-# is not a hard dependency of this file (the feature is off by default).
+# semantic_retrieval is imported lazily where used (only when USE_SEMANTIC_RETRIEVAL).
 
 try:
     from unsloth import FastLanguageModel
@@ -569,14 +567,9 @@ def predict_best_accuracy(
     epoch_2_accuracy: float,
     prm: dict | None = None,
 ) -> tuple[float, int]:
-    """Predict final best_accuracy and best_epoch using ABrain/Accuracy-Prediction.
-
-    When USE_ZERO_COST_PROXIES is True and nn_code is provided, the 5 active
-    zero-cost proxies are computed on the fly from the source code and added
-    to the prompt (matching the no-code + proxies configuration). `prm` is the
-    optional hyperparameter dict used only to compute the proxies; it is never
-    placed in the prompt. If proxy computation is off or fails, the prompt
-    falls back to early-signals-only automatically."""
+    """Predict best_accuracy and best_epoch using ABrain/Accuracy-Prediction.
+    If proxies are enabled and nn_code is given, they are computed from the code
+    and added to the prompt; prm is only used for that computation."""
     record = {
         "task": task,
         "dataset": dataset,
@@ -954,13 +947,9 @@ def _attach_proxy_features(record: dict, proxy_cache: dict, norm_stats: dict) ->
 
 _PREDICTOR_PROXY_NORM_STATS: dict | None = None
 
-# Proxy normalization stats FROZEN with the published ABrain/Accuracy-Prediction
-# model (fit once on the training split; see fit_proxy_normalization.py). They
-# are part of the model's input contract: at inference the live-computed proxies
-# must be scaled with exactly these numbers, or the model sees an off-scale input
-# and predictions degrade. Embedded here so predict_best_accuracy works
-# out-of-the-box for anyone -- no proxy_norm_stats.json file required. A local
-# file, if present, takes precedence (so a retrain can override these).
+# Normalization stats the published model was trained with, embedded so
+# inference works without a proxy_norm_stats.json file. A local file, if present,
+# overrides these (see _get_predictor_proxy_norm_stats).
 _DEFAULT_PROXY_NORM_STATS: dict = {
     "synflow":    {"transform": "log1p", "mean": 28.010968242141725, "std": 28.76250416924666,  "n": 1377},
     "nwot":       {"transform": "none",  "mean": 91.97849879832741,  "std": 11.345025242202839, "n": 1373},
@@ -974,11 +963,8 @@ _DEFAULT_PROXY_NORM_STATS: dict = {
 
 
 def _get_predictor_proxy_norm_stats() -> dict:
-    """Lazily load (and cache) the train-fit proxy normalization stats used to
-    z-score live-computed proxies exactly the way the training pipeline did.
-    Prefers the on-disk proxy_norm_stats.json if present; otherwise falls back
-    to the embedded _DEFAULT_PROXY_NORM_STATS so inference works with no extra
-    files (the two match for the published model)."""
+    """Load and cache the proxy normalization stats: the on-disk
+    proxy_norm_stats.json if present, else the embedded defaults."""
     global _PREDICTOR_PROXY_NORM_STATS
     if _PREDICTOR_PROXY_NORM_STATS is None:
         stats = _load_proxy_norm_stats(PROXY_NORM_STATS_PATH)
@@ -987,14 +973,9 @@ def _get_predictor_proxy_norm_stats() -> dict:
 
 
 def _attach_computed_proxies(record: dict, nn_code: str, prm: dict | None = None) -> None:
-    """Mutates record in place: computes the ACTIVE_PROXY_NAMES zero-cost
-    proxies directly from the network's source code (no precomputed cache
-    needed), normalizes them with the train-fit stats, and stores them under
-    proxy_<name> keys read by _format_proxy_lines. This is the single-network
-    inference counterpart to _attach_proxy_features (which reads a prebuilt
-    cache). Best-effort: compute_proxies never raises, and any proxy that
-    fails to compute stays None -> _format_proxy_lines omits that line, so a
-    failure degrades gracefully to the early-signals-only prompt."""
+    """Compute the active proxies from nn_code, normalize them, and store them as
+    proxy_<name> keys on record. Best-effort: proxies that fail to compute are
+    skipped."""
     if not USE_ZERO_COST_PROXIES or not (nn_code or "").strip():
         return
     norm_stats = _get_predictor_proxy_norm_stats()
@@ -1039,14 +1020,9 @@ def prepare_llm_datasets(
     proxy_cache: dict = {}
     proxy_norm_stats: dict = {}
     if USE_ZERO_COST_PROXIES:
-        # Auto-build the proxy cache + normalization stats on first run so the
-        # whole thing runs in one command. Both are cached to disk, so this
-        # cost is paid once; later runs just load them. The cache build is
-        # resumable if interrupted. (Formerly this raised and required running
-        # compute_proxy_cache.py + fit_proxy_normalization.py by hand.)
+        # Build the cache + stats on first run (cached to disk, resumable).
         if not PROXY_CACHE_PATH.exists():
-            print("Zero-cost proxy cache missing -- building it now "
-                  "(one-time, cached for future runs; resumable)...")
+            print("Proxy cache missing -- building it now...")
             from ab.gpt.util.method.compute_proxy_cache import build_proxy_cache
             build_proxy_cache(input_path=input_path, cache_path=PROXY_CACHE_PATH)
         if not PROXY_NORM_STATS_PATH.exists():
