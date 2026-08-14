@@ -15,6 +15,7 @@ Expected improvement: Both success rate and first-epoch accuracy should increase
 """
 
 import argparse
+import inspect
 import json
 import logging
 import shutil
@@ -219,12 +220,34 @@ class IterativeFinetuner:
                 ) from e
 
             # Step 1: Curate from LEMUR
+            #
+            # curate_from_lemur() lives in the externally-provided ab.dup
+            # package (not tracked here), and its signature varies across
+            # installed copies. Introspect the installed function and pass
+            # only the keyword filters it actually accepts, warning when a
+            # filter must be dropped, so we never crash with a TypeError.
             logger.info("Step 1: Curating models from LEMUR...")
-            curate_result = curate_from_lemur(
-                curation_output_dir,
-                dataset=self.dataset,
-                nn_prefixes=self.nn_prefixes,
+            _params = inspect.signature(curate_from_lemur).parameters
+            _accepts_kwargs = any(
+                p.kind is inspect.Parameter.VAR_KEYWORD for p in _params.values()
             )
+            _kwargs = {}
+            _dropped = []
+            for _name, _val in (
+                ("dataset", self.dataset),
+                ("nn_prefixes", self.nn_prefixes),
+            ):
+                if _accepts_kwargs or _name in _params:
+                    _kwargs[_name] = _val
+                else:
+                    _dropped.append(_name)
+            if _dropped:
+                logger.warning(
+                    f"Installed curate_from_lemur() does not accept {_dropped}; "
+                    f"curating without these filters. Update ab.dup.preprocessing "
+                    f"to filter by dataset/nn_prefixes."
+                )
+            curate_result = curate_from_lemur(curation_output_dir, **_kwargs)
             logger.info(f"✓ Curation from LEMUR completed: {curate_result}")
 
             # Step 2: Build chat data (ChatPrepConfig writes to curation_output by default)
