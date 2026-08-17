@@ -221,11 +221,21 @@ class IterativeFinetuner:
 
             # Step 1: Curate from LEMUR
             #
-            # curate_from_lemur() lives in the externally-provided ab.dup
-            # package (not tracked here), and its signature varies across
-            # installed copies. Introspect the installed function and pass
-            # only the keyword filters it actually accepts, warning when a
-            # filter must be dropped, so we never crash with a TypeError.
+            # curate_from_lemur() lives in the externally-provided ab.dup /
+            # nn-dup package (not tracked here) and its signature varies by
+            # installed version. Introspect the installed function and pass
+            # each filter under whatever name that version understands:
+            #   - dataset:    passed only if the param exists. The pinned pip
+            #                 package (nn-dup 2.2.5) has NO dataset param and
+            #                 no upstream equivalent (fetch_lemur_df() calls
+            #                 lemur.data(only_best_accuracy=True) unfiltered),
+            #                 so it is dropped with a warning there.
+            #   - nn_prefixes: passed as `nn_prefixes` if present; otherwise
+            #                 mapped to `includes`, which is nn-dup 2.2.5's
+            #                 exact equivalent (apply_prefix_filter() does
+            #                 normalized startswith matching on the model
+            #                 name); dropped with a warning only if neither
+            #                 param exists.
             logger.info("Step 1: Curating models from LEMUR...")
             _params = inspect.signature(curate_from_lemur).parameters
             _accepts_kwargs = any(
@@ -233,19 +243,32 @@ class IterativeFinetuner:
             )
             _kwargs = {}
             _dropped = []
-            for _name, _val in (
-                ("dataset", self.dataset),
-                ("nn_prefixes", self.nn_prefixes),
-            ):
-                if _accepts_kwargs or _name in _params:
-                    _kwargs[_name] = _val
-                else:
-                    _dropped.append(_name)
+
+            # dataset: no upstream equivalent, so pass-or-drop.
+            if _accepts_kwargs or "dataset" in _params:
+                _kwargs["dataset"] = self.dataset
+            else:
+                _dropped.append("dataset")
+
+            # nn_prefixes: prefer the native param, else map onto `includes`.
+            if _accepts_kwargs or "nn_prefixes" in _params:
+                _kwargs["nn_prefixes"] = self.nn_prefixes
+            elif "includes" in _params:
+                _kwargs["includes"] = list(self.nn_prefixes)
+                logger.info(
+                    "Installed curate_from_lemur() has no nn_prefixes param; "
+                    "mapping nn_prefixes -> includes=%s (nn-dup prefix filter).",
+                    list(self.nn_prefixes),
+                )
+            else:
+                _dropped.append("nn_prefixes")
+
             if _dropped:
                 logger.warning(
-                    f"Installed curate_from_lemur() does not accept {_dropped}; "
-                    f"curating without these filters. Update ab.dup.preprocessing "
-                    f"to filter by dataset/nn_prefixes."
+                    f"Installed curate_from_lemur() does not accept {_dropped} "
+                    f"and offers no equivalent; curating without "
+                    f"{'that filter' if len(_dropped) == 1 else 'those filters'}. "
+                    f"Update the installed ab.dup / nn-dup to filter by {_dropped}."
                 )
             curate_result = curate_from_lemur(curation_output_dir, **_kwargs)
             logger.info(f"✓ Curation from LEMUR completed: {curate_result}")
