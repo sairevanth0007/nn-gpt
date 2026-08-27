@@ -10,6 +10,8 @@ from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
+PIPELINE_DIR = os.environ.get("PIPELINE_DIR", os.path.join(BASE_DIR, "cifar10_pipeline"))
+VIZ_ROOT = os.path.join(PIPELINE_DIR, "visualizations")
 
 # if len(sys.argv) > 1:
 #     LOG_FILE = sys.argv[1]
@@ -165,11 +167,12 @@ def main(dataset=None, log_file_override=None):
             # We assume model name contains '-' or is the first part before date
             timestamp = "_".join(parts[-2:])
             model_name = "_".join(parts[:-2])
-            plot_dir = os.path.join(BASE_DIR, "visualizations", f"baseline_{dataset}_{model_name}_{timestamp}")
+            suffix = f"{dataset}_{model_name}_{timestamp}"
         else:
             timestamp = remainder
-            prefix = f"baseline_{dataset}_" if dataset else "baseline_"
-            plot_dir = os.path.join(BASE_DIR, "visualizations", f"{prefix}{timestamp}")
+            suffix = f"{dataset}_{timestamp}" if dataset else f"{timestamp}"
+        
+        plot_dir = os.path.join(VIZ_ROOT, f"baseline_visualization_{suffix}")
             
     elif "ga_evaluations_" in log_basename:
         if "imagenet100" in log_basename: dataset = "imagenet100"
@@ -184,16 +187,18 @@ def main(dataset=None, log_file_override=None):
         if len(parts) > 2 and "-" in remainder:
             timestamp = "_".join(parts[-2:])
             model_name = "_".join(parts[:-2])
-            plot_dir = os.path.join(BASE_DIR, "visualizations", f"run_{dataset}_{model_name}_{timestamp}")
+            suffix = f"{dataset}_{model_name}_{timestamp}"
         else:
             timestamp = remainder
-            prefix = f"run_{dataset}_" if dataset else "run_"
-            plot_dir = os.path.join(BASE_DIR, "visualizations", f"{prefix}{timestamp}")
+            suffix = f"{dataset}_{timestamp}" if dataset else f"{timestamp}"
+            
+        plot_dir = os.path.join(VIZ_ROOT, f"baseline_visualization_{suffix}")
     else:
         timestamp = log_basename.replace(".jsonl", "")
-        plot_dir = os.path.join(BASE_DIR, "visualizations", f"run_{timestamp}")
+        suffix = timestamp
+        plot_dir = os.path.join(VIZ_ROOT, f"baseline_visualization_{suffix}")
     os.makedirs(plot_dir, exist_ok=True)
-    plot_path = os.path.join(plot_dir, "baseline_accuracy_per_generation.png")
+    plot_path = os.path.join(plot_dir, f"baseline_accuracy_per_generation_{suffix}.png")
     # plt.savefig(plot_path, dpi=150)
     plt.savefig(plot_path, dpi=150, facecolor='white', transparent=False)
     print(f"\nAccuracy plot saved to: {plot_path}")
@@ -215,7 +220,7 @@ def main(dataset=None, log_file_override=None):
     ax2.set_xlim(1, len(generations))
     
     plt.tight_layout()
-    plot_time_path = os.path.join(plot_dir, "baseline_time_per_generation.png")
+    plot_time_path = os.path.join(plot_dir, f"baseline_time_per_generation_{suffix}.png")
     # fig2.savefig(plot_time_path, dpi=150)
     fig2.savefig(plot_time_path, dpi=150, facecolor='white', transparent=False)
     print(f"Time plot saved to: {plot_time_path}")
@@ -259,10 +264,9 @@ def main(dataset=None, log_file_override=None):
     ax3_twin.tick_params(axis='y', labelcolor="#10b981")
 
     plt.tight_layout()
-    plot_div_path = os.path.join(plot_dir, "baseline_diversity_per_generation.png")
+    plot_div_path = os.path.join(plot_dir, f"baseline_population_diversity_{suffix}.png")
     fig3.savefig(plot_div_path, dpi=150, facecolor='white', transparent=False)
     print(f"Diversity plot saved to: {plot_div_path}")
 
 if __name__ == "__main__":
     main()
-

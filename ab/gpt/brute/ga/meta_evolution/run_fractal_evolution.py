@@ -5,6 +5,7 @@ warnings.filterwarnings("ignore")
 import argparse
 import hashlib
 import json
+import glob
 import copy
 import numpy as np
 
@@ -43,6 +44,7 @@ import torch
 
 from ab.gpt.brute.ga.meta_evolution.FractalNet_evolvable_backbone import SEARCH_SPACE, generate_model_code_string
 from ab.gpt.util.Eval import Eval
+from ab.gpt.util.acc_client import predict_best_accuracy
 import ab.nn.api as nn_dataset
 import pandas as pd
 # MONKEYPATCH: Bypass the massive remote database download inside Eval.py
@@ -273,20 +275,31 @@ def fitness_function(chromosome: dict) -> float:
             'lr': chromosome['lr'],
             'momentum': chromosome['momentum'],
             'batch': 64,  # Increased from 32: more signal per step, avoids AccuracyException floor
-            'epoch': 1,   # Short epochs for Meta-Evaluation
+            # 'epoch': 1,   # Short epochs for Meta-Evaluation
+            'epoch': 3,   # 3-epoch proxy for LLM predictor
             'transform': "norm_32_flip",  # Native CIFAR-10 resolution (was 256 → massive slowdown)
             'max_batches': None,  # None = full dataset (782 batches), or set int for proxy eval (e.g. 200)
         }
 
-        # --- FIX: Delete stale training_summary.json before eval so it
-        # cannot be picked up and mistaken for the current model's stats.
-        summary_path = os.path.join(os.getcwd(), 'out', 'training_summary.json')
-        if os.path.exists(summary_path):
+        # --- PREVIOUS CODE (Commented out per protocol) ---
+        # # --- FIX: Delete stale training_summary.json before eval so it
+        # # cannot be picked up and mistaken for the current model's stats.
+        # summary_path = os.path.join(os.getcwd(), 'out', 'training_summary.json')
+        # if os.path.exists(summary_path):
+        #     try:
+        #         os.remove(summary_path)
+        #         print(f"  - Cleared stale training_summary.json before eval")
+        #     except Exception as e:
+        #         print(f"  - Warning: could not remove stale summary: {e}")
+        
+        # --- NEW CODE: Clean up ALL stale dynamic eval folders ---
+        stale_summaries = glob.glob(os.path.join(os.getcwd(), 'out_nneval_tmp_*', 'training_summary.json'))
+        for stale_file in stale_summaries:
             try:
-                os.remove(summary_path)
-                print(f"  - Cleared stale training_summary.json before eval")
-            except Exception as e:
-                print(f"  - Warning: could not remove stale summary: {e}")
+                os.remove(stale_file)
+            except:
+                pass
+        
         
         # We don't need `Eval` to make its own subfolder if we want a flat JSON
         evaluator = Eval(
@@ -302,26 +315,45 @@ def fitness_function(chromosome: dict) -> float:
         
         result = evaluator.evaluate(filepath)
         
-        # Fetch stats from the freshly-written training_summary.json.
-        # Only trust it if it was actually written by THIS evaluation
-        # (guard: the file must exist AND belong to the current model checksum).
+        # --- PREVIOUS CODE (Commented out per protocol) ---
+        # # Fetch stats from the freshly-written training_summary.json.
+        # # Only trust it if it was actually written by THIS evaluation
+        # # (guard: the file must exist AND belong to the current model checksum).
+        # full_res = {}
+        # if os.path.exists(summary_path):
+        #     try:
+        #         with open(summary_path, 'r') as f:
+        #             candidate = json.load(f)
+        #         file_uid = candidate.get('uid', model_checksum)
+        #         if file_uid == model_checksum:
+        #             full_res = candidate
+        #             print(f"  - Loaded fresh training_summary.json (uid match)")
+        #         else:
+        #             print(f"  - Warning: training_summary.json uid mismatch "
+        #                   f"({file_uid[:8]} vs {model_checksum[:8]}), ignoring stale file")
+        #     except Exception as e:
+        #         print(f"  - Failed to read training summary: {e}")
+
+        # --- NEW CODE: Dynamically search for the correct training_summary.json ---
         full_res = {}
-        if os.path.exists(summary_path):
+        found_summaries = glob.glob(os.path.join(os.getcwd(), 'out_nneval_tmp_*', 'training_summary.json'))
+        found_summaries.extend(glob.glob(os.path.join(os.getcwd(), 'out', 'training_summary.json')))
+        
+        for p in found_summaries:
             try:
-                with open(summary_path, 'r') as f:
+                with open(p, 'r') as f:
                     candidate = json.load(f)
-                # Verify this file was produced for the current architecture.
-                # The uid field is set by the library; if absent we also accept
-                # a dict result and stamp our own checksum.
                 file_uid = candidate.get('uid', model_checksum)
-                if file_uid == model_checksum:
+                file_dataset = candidate.get('config', {}).get('dataset', DATASET_DASH)
+                if file_uid == model_checksum and file_dataset == DATASET_DASH:
                     full_res = candidate
-                    print(f"  - Loaded fresh training_summary.json (uid match)")
-                else:
-                    print(f"  - Warning: training_summary.json uid mismatch "
-                          f"({file_uid[:8]} vs {model_checksum[:8]}), ignoring stale file")
+                    print(f"  - Loaded fresh training_summary.json (uid & dataset match) from {p}")
+                    break # Found the exact matching stats!
             except Exception as e:
-                print(f"  - Failed to read training summary: {e}")
+                continue
+                
+        if not full_res:
+            print(f"  - Warning: Could not find training_summary.json matching uid {model_checksum[:8]}")
 
         # Fall back to the direct result object if summary was absent/mismatched
         if not full_res:
@@ -401,6 +433,67 @@ def fitness_function(chromosome: dict) -> float:
         os.rename(tmp_filepath, final_filepath)
         print(f"  - Model persisted to {os.path.basename(ARCH_DIR)}/ (stats verified: {len(_stats_json_files)} JSON file(s))")
 
+        # --- NEW CODE: Query LLM Predictor ---
+        predicted_final_accuracy = 0.0
+        predicted_final_epoch = 0
+        prediction_successful = False
+        
+        # Read the 1, 2, 3 epoch accuracies from the saved JSONs
+        epoch_accs = {1: 0.0, 2: 0.0, 3: 0.0}
+        for ep in [1, 2, 3]:
+            ep_file = os.path.join(model_stats_dir_path, f"{ep}.json")
+            if os.path.exists(ep_file):
+                try:
+                    with open(ep_file, 'r') as ef:
+                        ep_data = json.load(ef)[0]
+                    # Try to extract accuracy
+                    ep_acc = 0.0
+                    if 'accuracy' in ep_data: ep_acc = float(ep_data['accuracy']) * 100
+                    elif 'hyperparameters' in ep_data and 'accuracy' in ep_data['hyperparameters']: 
+                        ep_acc = float(ep_data['hyperparameters']['accuracy']) * 100
+                    epoch_accs[ep] = ep_acc
+                except: pass
+                
+        # Only predict if we have valid epoch accuracies
+        if epoch_accs[1] > 0 and epoch_accs[2] > 0 and epoch_accs[3] > 0:
+            try:
+                print(f"  - Querying LLM Predictor with accs: E1={epoch_accs[1]:.2f}, E2={epoch_accs[2]:.2f}, E3={epoch_accs[3]:.2f}")
+                pred_acc, pred_ep = predict_best_accuracy(
+                    task='img-classification',
+                    dataset=DATASET_DASH,
+                    metric='acc',
+                    nn_code=code_str,
+                    epoch_1_accuracy=epoch_accs[1],
+                    epoch_2_accuracy=epoch_accs[2],
+                    epoch_3_accuracy=epoch_accs[3],
+                )
+                predicted_final_accuracy = float(pred_acc)
+                predicted_final_epoch = int(pred_ep)
+                prediction_successful = True
+                print(f"  - Predictor success! Expected Max Acc: {predicted_final_accuracy:.2f}% at Epoch {predicted_final_epoch}")
+            except Exception as e:
+                print(f"  - Predictor failed (timeout/error): {e}")
+        else:
+            print(f"  - Warning: Missing 3-epoch trajectory, skipping predictor.")
+
+        # Save predictor summary
+        pred_summary = {
+            "uid": model_checksum,
+            "inputs_used": {
+                "epoch_1_accuracy": epoch_accs[1],
+                "epoch_2_accuracy": epoch_accs[2],
+                "epoch_3_accuracy": epoch_accs[3]
+            },
+            "prediction": {
+                "predicted_max_accuracy": predicted_final_accuracy,
+                "predicted_max_epoch": predicted_final_epoch,
+                "success": prediction_successful
+            }
+        }
+        with open(os.path.join(model_stats_dir_path, "predictor_summary.json"), 'w') as f:
+            json.dump(pred_summary, f, indent=4)
+        # --- END NEW CODE ---
+
         # --- Layered accuracy extraction ---
         # Priority: top-level > hyperparameters (library writes here) >
         #           training_summary > scalar result fallback
@@ -437,16 +530,32 @@ def fitness_function(chromosome: dict) -> float:
                 final_accuracy = float(result) * 100
                 _acc_source = "result scalar"
 
+        # --- PREVIOUS CODE (Commented out per protocol) ---
+        # print(f"\n  {'='*40}")
+        # print(f"  >>> FITNESS SCORE: {final_accuracy:.2f}%  (source: {_acc_source}, checksum: {model_checksum})")
+        # print(f"  {'='*40}\n")
+        # # seen_checksums.add(model_checksum)
+        # fitness_cache[model_checksum] = final_accuracy
+        # 
+        # chromosome['accuracy'] = float(final_accuracy)
+        # 
+        # _log_eval(model_checksum, final_accuracy, False)
+        # return final_accuracy
+        
+        # --- NEW CODE: Use predictor accuracy as fitness ---
+        # If prediction failed, fallback to raw 3-epoch final accuracy
+        ultimate_fitness = predicted_final_accuracy if prediction_successful else final_accuracy
+        fitness_source = "LLM Predictor" if prediction_successful else f"Fallback ({_acc_source})"
+        
         print(f"\n  {'='*40}")
-        print(f"  >>> FITNESS SCORE: {final_accuracy:.2f}%  (source: {_acc_source}, checksum: {model_checksum})")
+        print(f"  >>> FITNESS SCORE: {ultimate_fitness:.2f}%  (source: {fitness_source}, checksum: {model_checksum})")
         print(f"  {'='*40}\n")
-        # seen_checksums.add(model_checksum)
-        fitness_cache[model_checksum] = final_accuracy
         
-        chromosome['accuracy'] = float(final_accuracy)
+        fitness_cache[model_checksum] = ultimate_fitness
+        chromosome['accuracy'] = float(ultimate_fitness)
         
-        _log_eval(model_checksum, final_accuracy, False)
-        return final_accuracy
+        _log_eval(model_checksum, ultimate_fitness, False)
+        return ultimate_fitness
         
     except Exception as e:
         import traceback

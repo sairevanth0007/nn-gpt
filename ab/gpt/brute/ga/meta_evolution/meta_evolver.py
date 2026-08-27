@@ -68,7 +68,8 @@ if not os.path.exists(CHECKPOINT_FILE):
 
 RUNNER_SCRIPT = os.path.join(BASE_DIR, "run_fractal_evolution.py")
 RUN_TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-LOGS_DIR = os.path.join(PIPELINE_DIR, f"logs_{DATASET}", _model_name)
+FOLDER_TIMESTAMP = datetime.now().strftime("%d-%m-%y_%H-%M")
+LOGS_DIR = os.path.join(PIPELINE_DIR, f"logs_{DATASET}", _model_name, FOLDER_TIMESTAMP)
 os.makedirs(LOGS_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOGS_DIR, f"LLM-evolution-logs_{DATASET}_{_model_name}_{RUN_TIMESTAMP}.jsonl")
 GA_EVAL_LOG_FILE = os.path.join(LOGS_DIR, f"ga_evaluations_{DATASET}_{_model_name}_{RUN_TIMESTAMP}.jsonl")
