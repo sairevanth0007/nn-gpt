@@ -2,7 +2,7 @@
     "apiVersion": "batch/v1",
     "kind": "Job",
     "metadata": {
-        "name": "nngpt-baseline-ga-benchmark"
+        "name": "nngpt-baseline-ga-benchmark-cifar10"
     },
     "spec": {
         "parallelism": 1,

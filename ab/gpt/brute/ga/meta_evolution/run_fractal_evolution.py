@@ -292,28 +292,44 @@ def fitness_function(chromosome: dict) -> float:
         #     except Exception as e:
         #         print(f"  - Warning: could not remove stale summary: {e}")
         
-        # --- NEW CODE: Clean up ALL stale dynamic eval folders ---
-        stale_summaries = glob.glob(os.path.join(os.getcwd(), 'out_nneval_tmp_*', 'training_summary.json'))
-        for stale_file in stale_summaries:
-            try:
-                os.remove(stale_file)
-            except:
-                pass
-        
-        
         # We don't need `Eval` to make its own subfolder if we want a flat JSON
+        # However, to get per-epoch stats (1.json, 2.json), Train.py requires save_to_db=True.
+        # We monkeypatch the actual SQLite writes to prevent DB locking.
+        import ab.nn.util.db.Write as DB_Write
+        _original_db_save = DB_Write.save_results
+        _original_db_layer_save = getattr(DB_Write, 'save_layer_stat', None)
+        
+        DB_Write.save_results = lambda *args, **kwargs: 1  # Return dummy stat_id
+        if _original_db_layer_save:
+            DB_Write.save_layer_stat = lambda *args, **kwargs: None
+            
+        _original_db_save_nn = getattr(DB_Write, 'save_nn', None)
+        if _original_db_save_nn:
+            DB_Write.save_nn = lambda *args, **kwargs: kwargs.get('force_name', 'dummy_model_name')
+
+        model_stats_dir_name = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-{model_checksum}"
+        model_stats_dir_path = os.path.join(STATS_DIR, model_stats_dir_name)
+        os.makedirs(model_stats_dir_path, exist_ok=True)
+
         evaluator = Eval(
             model_source_package=ARCH_DIR,
             task='img-classification',
             dataset=DATASET_DASH,
             metric='acc',
             prm=eval_prm,
-            save_to_db=False,
+            save_to_db=True,
             prefix=model_name,
-            save_path=None 
+            save_path=model_stats_dir_path 
         )
         
-        result = evaluator.evaluate(filepath)
+        try:
+            result = evaluator.evaluate(filepath)
+        finally:
+            DB_Write.save_results = _original_db_save
+            if _original_db_layer_save:
+                DB_Write.save_layer_stat = _original_db_layer_save
+            if _original_db_save_nn:
+                DB_Write.save_nn = _original_db_save_nn
         
         # --- PREVIOUS CODE (Commented out per protocol) ---
         # # Fetch stats from the freshly-written training_summary.json.
@@ -327,35 +343,27 @@ def fitness_function(chromosome: dict) -> float:
         #         file_uid = candidate.get('uid', model_checksum)
         #         if file_uid == model_checksum:
         #             full_res = candidate
-        #             print(f"  - Loaded fresh training_summary.json (uid match)")
-        #         else:
-        #             print(f"  - Warning: training_summary.json uid mismatch "
-        #                   f"({file_uid[:8]} vs {model_checksum[:8]}), ignoring stale file")
-        #     except Exception as e:
-        #         print(f"  - Failed to read training summary: {e}")
-
-        # --- NEW CODE: Dynamically search for the correct training_summary.json ---
+        # Ensure the final fallback is structured correctly if native save failed
         full_res = {}
-        found_summaries = glob.glob(os.path.join(os.getcwd(), 'out_nneval_tmp_*', 'training_summary.json'))
-        found_summaries.extend(glob.glob(os.path.join(os.getcwd(), 'out', 'training_summary.json')))
-        
-        for p in found_summaries:
+        # We assume Train.py correctly wrote 1.json, 2.json to model_stats_dir_path.
+        # Let's verify by loading the highest epoch JSON to return as full_res.
+        import glob
+        saved_jsons = glob.glob(os.path.join(model_stats_dir_path, '*.json'))
+        if saved_jsons:
             try:
-                with open(p, 'r') as f:
+                # Find highest numbered json
+                highest_json = max(saved_jsons, key=lambda p: int(os.path.basename(p).split('.')[0]) if os.path.basename(p).split('.')[0].isdigit() else 0)
+                with open(highest_json, 'r') as f:
                     candidate = json.load(f)
-                file_uid = candidate.get('uid', model_checksum)
-                file_dataset = candidate.get('config', {}).get('dataset', DATASET_DASH)
-                if file_uid == model_checksum and file_dataset == DATASET_DASH:
+                if isinstance(candidate, list) and len(candidate) > 0:
+                    full_res = candidate[0]
+                elif isinstance(candidate, dict):
                     full_res = candidate
-                    print(f"  - Loaded fresh training_summary.json (uid & dataset match) from {p}")
-                    break # Found the exact matching stats!
+                print(f"  - Verified native per-epoch stats saved to {model_stats_dir_path}")
             except Exception as e:
-                continue
-                
-        if not full_res:
-            print(f"  - Warning: Could not find training_summary.json matching uid {model_checksum[:8]}")
+                print(f"  - Warning: Failed to parse native saved JSON: {e}")
 
-        # Fall back to the direct result object if summary was absent/mismatched
+        # Fall back to the direct result object if native saving failed
         if not full_res:
             if isinstance(result, dict):
                 full_res = result
@@ -383,37 +391,6 @@ def fitness_function(chromosome: dict) -> float:
 
         # Ensure uid is exactly the checksum
         full_res['uid'] = model_checksum
-        
-        # Save exact requested stats format to a JSON folder structure
-        # One JSON file per epoch: 1.json, 2.json, ..., N.json
-        model_stats_dir_name = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-{model_checksum}"
-        model_stats_dir_path = os.path.join(STATS_DIR, model_stats_dir_name)
-        os.makedirs(model_stats_dir_path, exist_ok=True)
-
-        epoch_details = full_res.get('epoch_details', [])
-        if epoch_details:
-            # Save a separate JSON for each epoch
-            for ep_data in epoch_details:
-                ep_num = ep_data.get('epoch', len(epoch_details))
-                # Build a per-epoch snapshot of the full result
-                ep_res = dict(full_res)
-                ep_res['current_epoch'] = ep_num
-                ep_res['uid'] = model_checksum
-                stat_file = os.path.join(model_stats_dir_path, f"{ep_num}.json")
-                with open(stat_file, 'w') as sf:
-                    json.dump([ep_res], sf, indent=4)
-            print(f"  - Saved {len(epoch_details)} epoch JSON file(s) to: {model_stats_dir_path}")
-        else:
-            # Fallback: save single file named after total epochs
-            max_epochs = eval_prm.get('epoch', 1)
-            if 'epoch_max' in full_res:
-                max_epochs = full_res['epoch_max']
-            elif 'training_summary' in full_res and 'total_epochs' in full_res['training_summary']:
-                max_epochs = full_res['training_summary']['total_epochs']
-            stat_file = os.path.join(model_stats_dir_path, f"{max_epochs}.json")
-            with open(stat_file, 'w') as sf:
-                json.dump([full_res], sf, indent=4)
-            print(f"  - Saved stats (fallback) to: {stat_file}")
 
         # --- Verify at least one stats JSON was written before persisting model ---
         _stats_json_files = [f for f in os.listdir(model_stats_dir_path) if f.endswith('.json')]
@@ -422,8 +399,6 @@ def fitness_function(chromosome: dict) -> float:
             # Clean up partial state
             if os.path.exists(tmp_filepath):
                 os.remove(tmp_filepath)
-            if os.path.isdir(model_stats_dir_path):
-                shutil.rmtree(model_stats_dir_path)
             
             # Log the failure entry to ga_evaluations
             _log_eval(model_checksum, 0.0, False)
@@ -558,17 +533,16 @@ def fitness_function(chromosome: dict) -> float:
         return ultimate_fitness
         
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"Eval Fail: {e}")
+        print(f"  - Error during evaluation (attempting to keep partial stats): {e}")
         # --- Cleanup: remove temp model file and any partial stats ---
         try:
             if tmp_filepath and os.path.exists(tmp_filepath):
                 os.remove(tmp_filepath)
                 print(f"  - Cleaned up temp file: {tmp_filepath}")
-            if model_stats_dir_path and os.path.isdir(model_stats_dir_path):
-                shutil.rmtree(model_stats_dir_path)
-                print(f"  - Cleaned up partial stats: {model_stats_dir_path}")
+            # --- DISABLED CLEANUP TO PRESERVE FILES ---
+            # if model_stats_dir_path and os.path.isdir(model_stats_dir_path):
+            #     shutil.rmtree(model_stats_dir_path)
+            #     print(f"  - Cleaned up empty stats dir: {model_stats_dir_path}")
         except Exception as cleanup_err:
             print(f"  - Warning: cleanup failed: {cleanup_err}")
             
