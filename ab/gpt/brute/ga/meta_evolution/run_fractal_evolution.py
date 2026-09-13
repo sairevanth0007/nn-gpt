@@ -564,10 +564,12 @@ if __name__ == "__main__":
     if not os.environ.get("GA_EVAL_LOG"):
         _standalone_mode = True
         run_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        logs_dir = os.path.join(BASE_DIR, "logs")
-        os.makedirs(logs_dir, exist_ok=True)
         _dataset_name = get_dataset_name(__file__)
         _model_name = get_model_short_name()
+        # Use pod's RUN_TS env var so JSONL lands in the same timestamped subfolder as Pod_logs.log
+        pod_run_ts = os.environ.get("RUN_TS", "")
+        logs_dir = os.path.join(PIPELINE_DIR, f"logs_{DATASET}", _model_name, pod_run_ts) if pod_run_ts else os.path.join(BASE_DIR, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
         os.environ["GA_EVAL_LOG"] = os.path.join(logs_dir, f"ga_evaluations_{_dataset_name}_{_model_name}_{run_ts}.jsonl")
         print(f"[LOG] GA eval log: {os.environ['GA_EVAL_LOG']}")
 

@@ -526,7 +526,9 @@ if __name__ == "__main__":
     if not os.environ.get("GA_EVAL_LOG"):
         _standalone_mode = True
         run_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        logs_dir = os.path.join(PIPELINE_DIR, f"logs_{DATASET}", "Baseline")
+        # Use pod's RUN_TS env var so JSONL lands in the same timestamped subfolder as Pod_logs.log
+        pod_run_ts = os.environ.get("RUN_TS", "")
+        logs_dir = os.path.join(PIPELINE_DIR, f"logs_{DATASET}", "Baseline", pod_run_ts) if pod_run_ts else os.path.join(PIPELINE_DIR, f"logs_{DATASET}", "Baseline")
         os.makedirs(logs_dir, exist_ok=True)
         os.environ["GA_EVAL_LOG"] = os.path.join(logs_dir, f"baseline_evaluations_{DATASET}_{run_ts}.jsonl")
         print(f"[LOG] Baseline GA eval log: {os.environ['GA_EVAL_LOG']}")
@@ -642,7 +644,7 @@ if __name__ == "__main__":
         try:
             from ab.gpt.brute.ga.meta_evolution.baseline_visualization import main as generate_plots
             print("\n=== Generating Visualizations ===")
-            # generate_plots()
-            generate_plots(dataset=DATASET)
+            # generate_plots(dataset=DATASET)
+            generate_plots(dataset=DATASET, log_file_override=os.environ.get("GA_EVAL_LOG"))
         except Exception as e:
             print(f"[WARN] Visualization failed (non-fatal): {e}")

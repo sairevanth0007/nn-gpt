@@ -47,24 +47,85 @@ def split_into_generations(entries, gen1_size=20, rest_size=15):
 
 # def main():
 #     print(f"Loading: {LOG_FILE}")
+# def main(dataset=None, log_file_override=None):
+#     if dataset:
+#         target_logs_dir = os.path.join(BASE_DIR, f"logs_{dataset}")
+#     else:
+#         target_logs_dir = os.path.join(BASE_DIR, "logs_cifar10")
+# 
+#     if log_file_override:
+#         LOG_FILE = log_file_override
+#     elif len(sys.argv) > 1:
+#         LOG_FILE = sys.argv[1]
+#     else:
+#         if dataset:
+#             log_files = glob.glob(os.path.join(target_logs_dir, f"baseline_evaluations_{dataset}_*.jsonl"))
+#         else:
+#             log_files = glob.glob(os.path.join(target_logs_dir, "baseline_evaluations_cifar10_*.jsonl")) + \
+#                         glob.glob(os.path.join(target_logs_dir, "baseline_evaluations_*.jsonl"))
+#         if not log_files:
+#             raise FileNotFoundError(f"No baseline_evaluations*.jsonl found in {target_logs_dir}")
+#         LOG_FILE = max(log_files, key=os.path.getmtime)
 def main(dataset=None, log_file_override=None):
-    if dataset:
-        target_logs_dir = os.path.join(BASE_DIR, f"logs_{dataset}")
-    else:
-        target_logs_dir = os.path.join(BASE_DIR, "logs_cifar10")
+    global VIZ_ROOT
+    # if not dataset:
+    #     dataset = os.environ.get("DATASET", "cifar10")
+    # 
+    # target_pipeline_dir = os.environ.get("PIPELINE_DIR", os.path.join(BASE_DIR, f"{dataset}_pipeline"))
+    # VIZ_ROOT = os.path.join(target_pipeline_dir, "visualizations")
+    # 
+    # if log_file_override and os.path.exists(log_file_override):
+    #     LOG_FILE = log_file_override
+    # elif os.environ.get("GA_EVAL_LOG") and os.path.exists(os.environ.get("GA_EVAL_LOG")):
+    #     LOG_FILE = os.environ.get("GA_EVAL_LOG")
+    # elif len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
+    #     LOG_FILE = sys.argv[1]
 
-    if log_file_override:
-        LOG_FILE = log_file_override
-    elif len(sys.argv) > 1:
-        LOG_FILE = sys.argv[1]
+    # Resolve candidate log file first
+    candidate_log = None
+    if log_file_override and os.path.exists(log_file_override):
+        candidate_log = log_file_override
+    elif os.environ.get("GA_EVAL_LOG") and os.path.exists(os.environ.get("GA_EVAL_LOG")):
+        candidate_log = os.environ.get("GA_EVAL_LOG")
+    elif len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
+        candidate_log = sys.argv[1]
+
+    # Infer dataset from candidate log if not provided
+    if not dataset and candidate_log:
+        base_log = os.path.basename(candidate_log)
+        if "imagenet100" in base_log:
+            dataset = "imagenet100"
+        elif "cifar100" in base_log:
+            dataset = "cifar100"
+        elif "cifar10" in base_log:
+            dataset = "cifar10"
+
+    if not dataset:
+        dataset = os.environ.get("DATASET", "cifar10")
+
+    target_pipeline_dir = os.environ.get("PIPELINE_DIR", os.path.join(BASE_DIR, f"{dataset}_pipeline"))
+    VIZ_ROOT = os.path.join(target_pipeline_dir, "visualizations")
+
+    if candidate_log:
+        LOG_FILE = candidate_log
     else:
-        if dataset:
-            log_files = glob.glob(os.path.join(target_logs_dir, f"baseline_evaluations_{dataset}_*.jsonl"))
-        else:
-            log_files = glob.glob(os.path.join(target_logs_dir, "baseline_evaluations_cifar10_*.jsonl")) + \
-                        glob.glob(os.path.join(target_logs_dir, "baseline_evaluations_*.jsonl"))
+        search_dirs = [
+            os.path.join(target_pipeline_dir, f"logs_{dataset}", "Baseline"),
+            os.path.join(target_pipeline_dir, f"logs_{dataset}"),
+            os.path.join(BASE_DIR, f"logs_{dataset}"),
+            os.path.join(BASE_DIR, "logs_cifar10"),
+            LOGS_DIR
+        ]
+        log_files = []
+        for sdir in search_dirs:
+            if os.path.exists(sdir):
+                log_files.extend(glob.glob(os.path.join(sdir, "**", f"baseline_evaluations_{dataset}_*.jsonl"), recursive=True))
+                log_files.extend(glob.glob(os.path.join(sdir, f"baseline_evaluations_{dataset}_*.jsonl")))
+                log_files.extend(glob.glob(os.path.join(sdir, "**", "baseline_evaluations_*.jsonl"), recursive=True))
+                log_files.extend(glob.glob(os.path.join(sdir, "baseline_evaluations_*.jsonl")))
+        log_files = list(set([os.path.abspath(f) for f in log_files if os.path.isfile(f)]))
         if not log_files:
-            raise FileNotFoundError(f"No baseline_evaluations*.jsonl found in {target_logs_dir}")
+            raise FileNotFoundError(f"No baseline_evaluations*.jsonl found in search dirs: {search_dirs}")
         LOG_FILE = max(log_files, key=os.path.getmtime)
 
     print(f"Loading: {LOG_FILE}")
