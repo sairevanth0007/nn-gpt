@@ -5,6 +5,7 @@ warnings.filterwarnings("ignore")
 import argparse
 import hashlib
 import json
+import glob
 import copy
 import numpy as np
 
@@ -40,9 +41,10 @@ def suppress_output():
             sys.stderr = old_stderr
 
 import torch
-from ab.gpt.brute.ga.meta_evolution.modified_GA_cifar10.genetic_algorithm_evolved import GeneticAlgorithm
+
 from ab.gpt.brute.ga.meta_evolution.FractalNet_evolvable_backbone import SEARCH_SPACE, generate_model_code_string
 from ab.gpt.util.Eval import Eval
+from ab.gpt.util.acc_client import predict_best_accuracy
 import ab.nn.api as nn_dataset
 import pandas as pd
 # MONKEYPATCH: Bypass the massive remote database download inside Eval.py
@@ -55,12 +57,21 @@ logging.basicConfig(level=logging.INFO, format='%(message)s', force=True)
 
 # --- PATH SETUP ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PIPELINE_DIR = os.environ.get("PIPELINE_DIR", BASE_DIR)
+DATASET = os.environ.get("DATASET", "cifar10")
+DATASET_DASH = "cifar-100" if DATASET == "cifar100" else "cifar-10"
+
+import importlib
+if PIPELINE_DIR not in sys.path:
+    sys.path.insert(0, PIPELINE_DIR)
+ga_mod = importlib.import_module("modified_GA.genetic_algorithm_evolved")
+GeneticAlgorithm = ga_mod.GeneticAlgorithm
+
 # This is the folder where unique fractal models will be saved
-ARCH_DIR = os.path.join(BASE_DIR, 'ga_fractal_arch_cifar10') 
-STATS_DIR = os.path.join(BASE_DIR, 'stats_cifar10')
-# CHECKPOINT = 'GenFractal_ckpt_cifar10.pkl'
-CHECKPOINT = os.path.join(BASE_DIR, 'GenFractal_ckpt_cifar10.pkl')
-BEST_STATS_DIR = os.path.join(BASE_DIR, 'best_fractal_stats_cifar10')
+ARCH_DIR = os.path.join(PIPELINE_DIR, 'architectures') 
+STATS_DIR = os.path.join(PIPELINE_DIR, 'stats')
+CHECKPOINT = os.path.join(PIPELINE_DIR, f'GenFractal_ckpt_{DATASET}.pkl')
+BEST_STATS_DIR = os.path.join(PIPELINE_DIR, f'best_fractal_stats_{DATASET}')
 
 os.makedirs(ARCH_DIR, exist_ok=True)
 os.makedirs(STATS_DIR, exist_ok=True)
@@ -123,7 +134,7 @@ def _load_existing_checksums():
     count = 0
     # prefix = "img-classification_cifar_GenFractalNet-"   # BUG: missing '-10', never matched any folder
     # prefix = "img-classification_cifar-10_GenFractalNet-"
-    prefix = "img-classification_cifar-10_acc_GenFractalNet-"
+    prefix = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-"
     if os.path.isdir(STATS_DIR):
         for name in os.listdir(STATS_DIR):
             if name.startswith(prefix):
@@ -140,6 +151,8 @@ def _load_existing_checksums():
                     try:
                         with open(json_path) as f:
                             data = json.load(f)
+                        if isinstance(data, list) and len(data) > 0:
+                            data = data[-1]
                         hp = data.get('hyperparameters', {})
                         ts = data.get('training_summary', {})
                         for src, key in [
@@ -172,7 +185,7 @@ def _lookup_stored_fitness(checksum: str) -> float:
     from the stats/ folder instead of returning 0.0.
     Returns fitness as a percentage (e.g. 54.69), or 0.0 if the file is missing/unreadable.
     """
-    stats_dir_name = f"img-classification_cifar-10_acc_GenFractalNet-{checksum}"
+    stats_dir_name = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-{checksum}"
     stats_dir_path = os.path.join(STATS_DIR, stats_dir_name)
     if not os.path.isdir(stats_dir_path):
         print(f"  - Duplicate: no stored stats found for {checksum[:8]}, returning 0.0")
@@ -191,6 +204,8 @@ def _lookup_stored_fitness(checksum: str) -> float:
     try:
         with open(json_path) as f:
             data = json.load(f)
+        if isinstance(data, list) and len(data) > 0:
+            data = data[-1]
     except Exception as e:
         print(f"  - Duplicate: could not read stats for {checksum[:8]}: {e}")
         return 0.0
@@ -260,57 +275,95 @@ def fitness_function(chromosome: dict) -> float:
             'lr': chromosome['lr'],
             'momentum': chromosome['momentum'],
             'batch': 64,  # Increased from 32: more signal per step, avoids AccuracyException floor
-            'epoch': 1,   # Short epochs for Meta-Evaluation
+            # 'epoch': 1,   # Short epochs for Meta-Evaluation
+            'epoch': 3,   # 3-epoch proxy for LLM predictor
             'transform': "norm_32_flip",  # Native CIFAR-10 resolution (was 256 → massive slowdown)
             'max_batches': None,  # None = full dataset (782 batches), or set int for proxy eval (e.g. 200)
         }
 
-        # --- FIX: Delete stale training_summary.json before eval so it
-        # cannot be picked up and mistaken for the current model's stats.
-        summary_path = os.path.join(os.getcwd(), 'out', 'training_summary.json')
-        if os.path.exists(summary_path):
-            try:
-                os.remove(summary_path)
-                print(f"  - Cleared stale training_summary.json before eval")
-            except Exception as e:
-                print(f"  - Warning: could not remove stale summary: {e}")
+        # --- PREVIOUS CODE (Commented out per protocol) ---
+        # # --- FIX: Delete stale training_summary.json before eval so it
+        # # cannot be picked up and mistaken for the current model's stats.
+        # summary_path = os.path.join(os.getcwd(), 'out', 'training_summary.json')
+        # if os.path.exists(summary_path):
+        #     try:
+        #         os.remove(summary_path)
+        #         print(f"  - Cleared stale training_summary.json before eval")
+        #     except Exception as e:
+        #         print(f"  - Warning: could not remove stale summary: {e}")
         
         # We don't need `Eval` to make its own subfolder if we want a flat JSON
+        # However, to get per-epoch stats (1.json, 2.json), Train.py requires save_to_db=True.
+        # We monkeypatch the actual SQLite writes to prevent DB locking.
+        import ab.nn.util.db.Write as DB_Write
+        _original_db_save = DB_Write.save_results
+        _original_db_layer_save = getattr(DB_Write, 'save_layer_stat', None)
+        
+        DB_Write.save_results = lambda *args, **kwargs: 1  # Return dummy stat_id
+        if _original_db_layer_save:
+            DB_Write.save_layer_stat = lambda *args, **kwargs: None
+            
+        _original_db_save_nn = getattr(DB_Write, 'save_nn', None)
+        if _original_db_save_nn:
+            DB_Write.save_nn = lambda *args, **kwargs: kwargs.get('force_name', 'dummy_model_name')
+
+        model_stats_dir_name = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-{model_checksum}"
+        model_stats_dir_path = os.path.join(STATS_DIR, model_stats_dir_name)
+        os.makedirs(model_stats_dir_path, exist_ok=True)
+
         evaluator = Eval(
             model_source_package=ARCH_DIR,
             task='img-classification',
-            dataset='cifar-10',
+            dataset=DATASET_DASH,
             metric='acc',
             prm=eval_prm,
-            save_to_db=False,
+            save_to_db=True,
             prefix=model_name,
-            save_path=None 
+            save_path=model_stats_dir_path 
         )
         
-        result = evaluator.evaluate(filepath)
+        try:
+            result = evaluator.evaluate(filepath)
+        finally:
+            DB_Write.save_results = _original_db_save
+            if _original_db_layer_save:
+                DB_Write.save_layer_stat = _original_db_layer_save
+            if _original_db_save_nn:
+                DB_Write.save_nn = _original_db_save_nn
         
-        # Fetch stats from the freshly-written training_summary.json.
-        # Only trust it if it was actually written by THIS evaluation
-        # (guard: the file must exist AND belong to the current model checksum).
+        # --- PREVIOUS CODE (Commented out per protocol) ---
+        # # Fetch stats from the freshly-written training_summary.json.
+        # # Only trust it if it was actually written by THIS evaluation
+        # # (guard: the file must exist AND belong to the current model checksum).
+        # full_res = {}
+        # if os.path.exists(summary_path):
+        #     try:
+        #         with open(summary_path, 'r') as f:
+        #             candidate = json.load(f)
+        #         file_uid = candidate.get('uid', model_checksum)
+        #         if file_uid == model_checksum:
+        #             full_res = candidate
+        # Ensure the final fallback is structured correctly if native save failed
         full_res = {}
-        if os.path.exists(summary_path):
+        # We assume Train.py correctly wrote 1.json, 2.json to model_stats_dir_path.
+        # Let's verify by loading the highest epoch JSON to return as full_res.
+        import glob
+        saved_jsons = glob.glob(os.path.join(model_stats_dir_path, '*.json'))
+        if saved_jsons:
             try:
-                with open(summary_path, 'r') as f:
+                # Find highest numbered json
+                highest_json = max(saved_jsons, key=lambda p: int(os.path.basename(p).split('.')[0]) if os.path.basename(p).split('.')[0].isdigit() else 0)
+                with open(highest_json, 'r') as f:
                     candidate = json.load(f)
-                # Verify this file was produced for the current architecture.
-                # The uid field is set by the library; if absent we also accept
-                # a dict result and stamp our own checksum.
-                file_uid = candidate.get('uid', model_checksum)
-                if file_uid == model_checksum:
+                if isinstance(candidate, list) and len(candidate) > 0:
+                    full_res = candidate[0]
+                elif isinstance(candidate, dict):
                     full_res = candidate
-                    print(f"  - Loaded fresh training_summary.json (uid match)")
-                else:
-                    print(f"  - Warning: training_summary.json uid mismatch "
-                          f"({file_uid[:8]} vs {model_checksum[:8]}), ignoring stale file")
+                print(f"  - Verified native per-epoch stats saved to {model_stats_dir_path}")
             except Exception as e:
-                print(f"  - Failed to read training summary: {e}")
+                print(f"  - Warning: Failed to parse native saved JSON: {e}")
 
-        # Fall back to the direct result object if summary was absent/mismatched
+        # Fall back to the direct result object if native saving failed
         if not full_res:
             if isinstance(result, dict):
                 full_res = result
@@ -324,7 +377,7 @@ def fitness_function(chromosome: dict) -> float:
                 full_res = {
                     'config': {
                         'task': 'img-classification',
-                        'dataset': 'cifar-10',
+                        'dataset': DATASET_DASH,
                         'metric': 'acc',
                         'model': model_name
                     },
@@ -338,38 +391,6 @@ def fitness_function(chromosome: dict) -> float:
 
         # Ensure uid is exactly the checksum
         full_res['uid'] = model_checksum
-        
-        # Save exact requested stats format to a JSON folder structure
-        # One JSON file per epoch: 1.json, 2.json, ..., N.json
-        # model_stats_dir_name = f"img-classification_cifar-10_GenFractalNet-{model_checksum}"
-        model_stats_dir_name = f"img-classification_cifar-10_acc_GenFractalNet-{model_checksum}"
-        model_stats_dir_path = os.path.join(STATS_DIR, model_stats_dir_name)
-        os.makedirs(model_stats_dir_path, exist_ok=True)
-
-        epoch_details = full_res.get('epoch_details', [])
-        if epoch_details:
-            # Save a separate JSON for each epoch
-            for ep_data in epoch_details:
-                ep_num = ep_data.get('epoch', len(epoch_details))
-                # Build a per-epoch snapshot of the full result
-                ep_res = dict(full_res)
-                ep_res['current_epoch'] = ep_num
-                ep_res['uid'] = model_checksum
-                stat_file = os.path.join(model_stats_dir_path, f"{ep_num}.json")
-                with open(stat_file, 'w') as sf:
-                    json.dump(ep_res, sf, indent=4)
-            print(f"  - Saved {len(epoch_details)} epoch JSON file(s) to: {model_stats_dir_path}")
-        else:
-            # Fallback: save single file named after total epochs
-            max_epochs = eval_prm.get('epoch', 1)
-            if 'epoch_max' in full_res:
-                max_epochs = full_res['epoch_max']
-            elif 'training_summary' in full_res and 'total_epochs' in full_res['training_summary']:
-                max_epochs = full_res['training_summary']['total_epochs']
-            stat_file = os.path.join(model_stats_dir_path, f"{max_epochs}.json")
-            with open(stat_file, 'w') as sf:
-                json.dump(full_res, sf, indent=4)
-            print(f"  - Saved stats (fallback) to: {stat_file}")
 
         # --- Verify at least one stats JSON was written before persisting model ---
         _stats_json_files = [f for f in os.listdir(model_stats_dir_path) if f.endswith('.json')]
@@ -378,8 +399,6 @@ def fitness_function(chromosome: dict) -> float:
             # Clean up partial state
             if os.path.exists(tmp_filepath):
                 os.remove(tmp_filepath)
-            if os.path.isdir(model_stats_dir_path):
-                shutil.rmtree(model_stats_dir_path)
             
             # Log the failure entry to ga_evaluations
             _log_eval(model_checksum, 0.0, False)
@@ -388,6 +407,67 @@ def fitness_function(chromosome: dict) -> float:
         # Stats verified — promote temp model file to its final location
         os.rename(tmp_filepath, final_filepath)
         print(f"  - Model persisted to {os.path.basename(ARCH_DIR)}/ (stats verified: {len(_stats_json_files)} JSON file(s))")
+
+        # --- NEW CODE: Query LLM Predictor ---
+        predicted_final_accuracy = 0.0
+        predicted_final_epoch = 0
+        prediction_successful = False
+        
+        # Read the 1, 2, 3 epoch accuracies from the saved JSONs
+        epoch_accs = {1: 0.0, 2: 0.0, 3: 0.0}
+        for ep in [1, 2, 3]:
+            ep_file = os.path.join(model_stats_dir_path, f"{ep}.json")
+            if os.path.exists(ep_file):
+                try:
+                    with open(ep_file, 'r') as ef:
+                        ep_data = json.load(ef)[0]
+                    # Try to extract accuracy
+                    ep_acc = 0.0
+                    if 'accuracy' in ep_data: ep_acc = float(ep_data['accuracy']) * 100
+                    elif 'hyperparameters' in ep_data and 'accuracy' in ep_data['hyperparameters']: 
+                        ep_acc = float(ep_data['hyperparameters']['accuracy']) * 100
+                    epoch_accs[ep] = ep_acc
+                except: pass
+                
+        # Only predict if we have valid epoch accuracies
+        if epoch_accs[1] > 0 and epoch_accs[2] > 0 and epoch_accs[3] > 0:
+            try:
+                print(f"  - Querying LLM Predictor with accs: E1={epoch_accs[1]:.2f}, E2={epoch_accs[2]:.2f}, E3={epoch_accs[3]:.2f}")
+                pred_acc, pred_ep = predict_best_accuracy(
+                    task='img-classification',
+                    dataset=DATASET_DASH,
+                    metric='acc',
+                    nn_code=code_str,
+                    epoch_1_accuracy=epoch_accs[1],
+                    epoch_2_accuracy=epoch_accs[2],
+                    epoch_3_accuracy=epoch_accs[3],
+                )
+                predicted_final_accuracy = float(pred_acc)
+                predicted_final_epoch = int(pred_ep)
+                prediction_successful = True
+                print(f"  - Predictor success! Expected Max Acc: {predicted_final_accuracy:.2f}% at Epoch {predicted_final_epoch}")
+            except Exception as e:
+                print(f"  - Predictor failed (timeout/error): {e}")
+        else:
+            print(f"  - Warning: Missing 3-epoch trajectory, skipping predictor.")
+
+        # Save predictor summary
+        pred_summary = {
+            "uid": model_checksum,
+            "inputs_used": {
+                "epoch_1_accuracy": epoch_accs[1],
+                "epoch_2_accuracy": epoch_accs[2],
+                "epoch_3_accuracy": epoch_accs[3]
+            },
+            "prediction": {
+                "predicted_max_accuracy": predicted_final_accuracy,
+                "predicted_max_epoch": predicted_final_epoch,
+                "success": prediction_successful
+            }
+        }
+        with open(os.path.join(model_stats_dir_path, "predictor_summary.json"), 'w') as f:
+            json.dump(pred_summary, f, indent=4)
+        # --- END NEW CODE ---
 
         # --- Layered accuracy extraction ---
         # Priority: top-level > hyperparameters (library writes here) >
@@ -425,29 +505,44 @@ def fitness_function(chromosome: dict) -> float:
                 final_accuracy = float(result) * 100
                 _acc_source = "result scalar"
 
+        # --- PREVIOUS CODE (Commented out per protocol) ---
+        # print(f"\n  {'='*40}")
+        # print(f"  >>> FITNESS SCORE: {final_accuracy:.2f}%  (source: {_acc_source}, checksum: {model_checksum})")
+        # print(f"  {'='*40}\n")
+        # # seen_checksums.add(model_checksum)
+        # fitness_cache[model_checksum] = final_accuracy
+        # 
+        # chromosome['accuracy'] = float(final_accuracy)
+        # 
+        # _log_eval(model_checksum, final_accuracy, False)
+        # return final_accuracy
+        
+        # --- NEW CODE: Use predictor accuracy as fitness ---
+        # If prediction failed, fallback to raw 3-epoch final accuracy
+        ultimate_fitness = predicted_final_accuracy if prediction_successful else final_accuracy
+        fitness_source = "LLM Predictor" if prediction_successful else f"Fallback ({_acc_source})"
+        
         print(f"\n  {'='*40}")
-        print(f"  >>> FITNESS SCORE: {final_accuracy:.2f}%  (source: {_acc_source}, checksum: {model_checksum})")
+        print(f"  >>> FITNESS SCORE: {ultimate_fitness:.2f}%  (source: {fitness_source}, checksum: {model_checksum})")
         print(f"  {'='*40}\n")
-        # seen_checksums.add(model_checksum)
-        fitness_cache[model_checksum] = final_accuracy
         
-        chromosome['accuracy'] = float(final_accuracy)
+        fitness_cache[model_checksum] = ultimate_fitness
+        chromosome['accuracy'] = float(ultimate_fitness)
         
-        _log_eval(model_checksum, final_accuracy, False)
-        return final_accuracy
+        _log_eval(model_checksum, ultimate_fitness, False)
+        return ultimate_fitness
         
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"Eval Fail: {e}")
+        print(f"  - Error during evaluation (attempting to keep partial stats): {e}")
         # --- Cleanup: remove temp model file and any partial stats ---
         try:
             if tmp_filepath and os.path.exists(tmp_filepath):
                 os.remove(tmp_filepath)
                 print(f"  - Cleaned up temp file: {tmp_filepath}")
-            if model_stats_dir_path and os.path.isdir(model_stats_dir_path):
-                shutil.rmtree(model_stats_dir_path)
-                print(f"  - Cleaned up partial stats: {model_stats_dir_path}")
+            # --- DISABLED CLEANUP TO PRESERVE FILES ---
+            # if model_stats_dir_path and os.path.isdir(model_stats_dir_path):
+            #     shutil.rmtree(model_stats_dir_path)
+            #     print(f"  - Cleaned up empty stats dir: {model_stats_dir_path}")
         except Exception as cleanup_err:
             print(f"  - Warning: cleanup failed: {cleanup_err}")
             
@@ -469,10 +564,12 @@ if __name__ == "__main__":
     if not os.environ.get("GA_EVAL_LOG"):
         _standalone_mode = True
         run_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        logs_dir = os.path.join(BASE_DIR, "logs")
-        os.makedirs(logs_dir, exist_ok=True)
         _dataset_name = get_dataset_name(__file__)
         _model_name = get_model_short_name()
+        # Use pod's RUN_TS env var so JSONL lands in the same timestamped subfolder as Pod_logs.log
+        pod_run_ts = os.environ.get("RUN_TS", "")
+        logs_dir = os.path.join(PIPELINE_DIR, f"logs_{DATASET}", _model_name, pod_run_ts) if pod_run_ts else os.path.join(BASE_DIR, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
         os.environ["GA_EVAL_LOG"] = os.path.join(logs_dir, f"ga_evaluations_{_dataset_name}_{_model_name}_{run_ts}.jsonl")
         print(f"[LOG] GA eval log: {os.environ['GA_EVAL_LOG']}")
 
@@ -507,16 +604,16 @@ if __name__ == "__main__":
         
         # Save Best Architecture
         if best:
+             MODEL_NAME = os.environ.get("MODEL_NAME", "unknown")
              best_code = generate_model_code_string(best['chromosome'])
-             best_path = os.path.join(BASE_DIR, "best_fractal_model.py")
+             best_path = os.path.join(PIPELINE_DIR, f"best_fractal_meta_{DATASET}_{MODEL_NAME}.py")
              with open(best_path, "w") as f:
                  f.write(best_code)
              print(f"[Best] Saved best model to {best_path}")
 
              # Copy Winning Stats
              best_checksum = uuid4(best_code)
-             # best_folder_name = f"img-classification_cifar-10_GenFractalNet-{best_checksum}"
-             best_folder_name = f"img-classification_cifar-10_acc_GenFractalNet-{best_checksum}"
+             best_folder_name = f"img-classification_{DATASET_DASH}_acc_GenFractalNet-{best_checksum}"
              src_stats_path = os.path.join(STATS_DIR, best_folder_name)
              dst_stats_path = os.path.join(BEST_STATS_DIR, best_folder_name)
 
@@ -580,7 +677,8 @@ if __name__ == "__main__":
             "fitness_history": history,
             "total_generations": target_gens
         }
-        with open(os.path.join(BASE_DIR, "evolved_results.json"), "w") as f:
+        MODEL_NAME = os.environ.get("MODEL_NAME", "unknown")
+        with open(os.path.join(PIPELINE_DIR, f"evolved_results_{DATASET}_{MODEL_NAME}.json"), "w") as f:
             json.dump(trajectory, f, indent=4)
 
     except Exception as e:
@@ -594,7 +692,7 @@ if __name__ == "__main__":
     # (meta_evolver.py handles its own visualization at the end)
     if _standalone_mode:
         try:
-            from ab.gpt.brute.ga.meta_evolution.visualize_baseline_generations import main as generate_plots
+            from ab.gpt.brute.ga.meta_evolution.baseline_visualization import main as generate_plots
             print("\n=== Generating Visualizations ===")
             generate_plots()
         except Exception as e:

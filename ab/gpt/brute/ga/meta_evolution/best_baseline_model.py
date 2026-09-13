@@ -166,7 +166,8 @@ class Net(nn.Module):
         self.optimizer = torch.optim.AdamW(self.parameters(), lr=prm['lr'], betas=(prm['momentum'], 0.999), weight_decay=1e-4)
         self.max_batches = prm.get('max_batches', None)
 
-        total_steps = 782 if self.max_batches is None else min(self.max_batches, 782)
+        steps_per_epoch = 782 if self.max_batches is None else min(self.max_batches, 782)
+        total_steps = steps_per_epoch * prm.get('epoch', 1)
         self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
             self.optimizer,
             max_lr=prm['lr'] * 10,

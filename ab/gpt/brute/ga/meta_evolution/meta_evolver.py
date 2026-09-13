@@ -23,17 +23,21 @@ from ab.gpt.brute.ga.meta_evolution.rl_rewards import calculate_meta_reward
 from ab.gpt.brute.ga.meta_evolution.FractalNet_evolvable_backbone import SEARCH_SPACE
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PIPELINE_DIR = os.environ.get("PIPELINE_DIR", BASE_DIR)
+DATASET = os.environ.get("DATASET", "cifar10")
+DATASET_DASH = "cifar-100" if DATASET == "cifar100" else "cifar-10"
+
 _dataset_name = get_dataset_name(__file__)
 _model_name = get_model_short_name()
 
-MODIFIED_GA_DIR = os.path.join(BASE_DIR, f"modified_GA_{_dataset_name}")
+MODIFIED_GA_DIR = os.path.join(PIPELINE_DIR, f"modified_GA")
 os.makedirs(MODIFIED_GA_DIR, exist_ok=True)
 TARGET_FILE = os.path.join(MODIFIED_GA_DIR, "genetic_algorithm_evolved.py")
 
 # Fair Benchmarking: Reset baseline if starting fresh
-CHECKPOINT_FILE = os.path.join(BASE_DIR, f"GenFractal_ckpt_{_dataset_name}.pkl")
-BACKUP_DIR = os.path.join(BASE_DIR, f"ga_history_backup_{_dataset_name}")
-ADAPTER_SAVE_PATH = os.path.join(BASE_DIR, f"{_model_name}_adapter_{_dataset_name}")
+CHECKPOINT_FILE = os.path.join(PIPELINE_DIR, f"GenFractal_ckpt_{DATASET}.pkl")
+BACKUP_DIR = os.path.join(PIPELINE_DIR, f"ga_history_backup")
+ADAPTER_SAVE_PATH = os.path.join(PIPELINE_DIR, f"{_model_name}_adapter")
 
 if not os.path.exists(CHECKPOINT_FILE):
     baseline_file = os.path.join(BASE_DIR, "genetic_algorithm_baseline.py")
@@ -64,10 +68,11 @@ if not os.path.exists(CHECKPOINT_FILE):
 
 RUNNER_SCRIPT = os.path.join(BASE_DIR, "run_fractal_evolution.py")
 RUN_TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-LOGS_DIR = os.path.join(BASE_DIR, f"logs_{_dataset_name}")
+FOLDER_TIMESTAMP = datetime.now().strftime("%d-%m-%y_%H-%M")
+LOGS_DIR = os.path.join(PIPELINE_DIR, f"logs_{DATASET}", _model_name, FOLDER_TIMESTAMP)
 os.makedirs(LOGS_DIR, exist_ok=True)
-LOG_FILE = os.path.join(LOGS_DIR, f"LLM-evolution-logs_{_dataset_name}_{_model_name}_{RUN_TIMESTAMP}.jsonl")
-GA_EVAL_LOG_FILE = os.path.join(LOGS_DIR, f"ga_evaluations_{_dataset_name}_{_model_name}_{RUN_TIMESTAMP}.jsonl")
+LOG_FILE = os.path.join(LOGS_DIR, f"LLM-evolution-logs_{DATASET}_{_model_name}_{RUN_TIMESTAMP}.jsonl")
+GA_EVAL_LOG_FILE = os.path.join(LOGS_DIR, f"ga_evaluations_{DATASET}_{_model_name}_{RUN_TIMESTAMP}.jsonl")
 
 # KEEP BENCHMARKS SMALL FOR FAST FEEDBACK, BUT CONFIGURABLE VIA ENV
 BENCH_GENS = int(os.environ.get("GENERATIONS", 3))
@@ -78,9 +83,13 @@ BENCH_POP = int(os.environ.get("POPULATION_SIZE", 10))
 SEARCH_SPACE_STR = json.dumps(SEARCH_SPACE, indent=2)
 
 BASE_PROMPT_TEMPLATE = """
-You are an expert AI researcher fine-tuning a Genetic Algorithm (GA) that evolves PyTorch Neural Network architectures for CIFAR-10.
+You are an expert AI researcher fine-tuning a Genetic Algorithm (GA) that evolves PyTorch Neural Network architectures for {dataset}.
 CRITICAL MANDATE: Your ONLY goal is RADICAL ARCHITECTURAL INNOVATION. Do not make small incremental changes.
 You are heavily penalized if you do not generate completely novel combinations of layers, activations, and topologies.
+
+=== FEEDBACK FROM RECENT FAILED ATTEMPTS ===
+{history_str}
+Study these failures carefully. DO NOT repeat the same mistakes or generate the exact same code.
 
 === SEARCH SPACE ===
 The GA optimizes the following SEARCH_SPACE:
@@ -140,11 +149,18 @@ def skeletonize_code(source_code):
 
 class MetaEvolver:
     def __init__(self, model_path):
-        self.llm = LocalLLMLoader(model_path, use_quantization=True, adapter_path=ADAPTER_SAVE_PATH)
+        load_adapter = os.environ.get("LOAD_PREVIOUS_ADAPTER", "false").lower() == "true"
+        adapter_path_to_load = ADAPTER_SAVE_PATH if load_adapter and os.path.exists(ADAPTER_SAVE_PATH) else None
+        if load_adapter:
+            print(f"[Meta] LOAD_PREVIOUS_ADAPTER is TRUE. Trying to load from: {adapter_path_to_load}")
+        else:
+            print("[Meta] LOAD_PREVIOUS_ADAPTER is FALSE. Starting with fresh LLM weights.")
+            
+        self.llm = LocalLLMLoader(model_path, use_quantization=True, adapter_path=adapter_path_to_load)
         os.makedirs(BACKUP_DIR, exist_ok=True)
         
         self.baseline_score = 0.0
-        best_info_path = os.path.join(BASE_DIR, "best_baseline_info.json")
+        best_info_path = os.path.join(PIPELINE_DIR, f"best_baseline_info_{DATASET}.json")
         if os.path.exists(best_info_path):
             try:
                 with open(best_info_path, 'r') as f:
@@ -160,9 +176,8 @@ class MetaEvolver:
             print(f"[Meta] Calculated Baseline: {self.baseline_score:.4f}%")
             
             # WIPE CHECKPOINT to force LLM to start from scratch
-            ckpt_path = os.path.join(BASE_DIR, "GenFractal_ckpt_cifar10.pkl")
-            if os.path.exists(ckpt_path):
-                os.remove(ckpt_path)
+            if os.path.exists(CHECKPOINT_FILE):
+                os.remove(CHECKPOINT_FILE)
                 print("[Meta] Wiped Baseline population checkpoint to force clean start for LLM.")
         self.global_best_score = 0.0
         self.global_archive_size = 0
@@ -355,18 +370,18 @@ class MetaEvolver:
             
             # Filter history to only include attempts for the current component!
             component_name = method_names[0] if isinstance(method_names, (list, tuple)) else method_names
-            relevant_history = [h for h in self.attempt_history if component_name in h.get('code', '') or component_name == "full"]
+            relevant_history = [h for h in self.attempt_history if (component_name in h.get('code', '') or component_name == "full") and h.get("status") != "Success"]
             
             for idx, h in enumerate(relevant_history[-2:]):
                 status = h.get("status", "Unknown")
-                score = h.get("score", 0.0)
+                reward = h.get("reward", 0.0)
                 trace = h.get("error_trace", "")
                 if len(trace) > 150: trace = trace[-150:] + "\n... (truncated)"
-                trace_str = f"\nError Trace:\n{trace}" if trace else ""
+                trace_str = f"\nError Trace:\n{trace}" if trace else "\nError Trace:\n(None)"
                 
                 hist_code = h.get('code', '')
                 if len(hist_code) > 800: hist_code = hist_code[:800] + "\n... (truncated)"
-                history_lines.append(f"Attempt {idx+1}:\nStatus: {status}\nScore: {score}{trace_str}\nCode:\n```python\n{hist_code}\n```")
+                history_lines.append(f"Attempt {idx+1}:\nStatus: {status}\nReward: {reward:.2f}{trace_str}\nCode:\n```python\n{hist_code}\n```")
             
             if history_lines:
                 history_str = "\n\n".join(history_lines)
@@ -392,12 +407,12 @@ class MetaEvolver:
                 if hof_lines:
                     hall_of_fame_str = "\n\n".join(hof_lines)
 
-        # Provide full intact code instead of skeletonizing
-        skel_full_code = full_code
+        # Compress prompt by skeletonizing to save tokens
+        skel_full_code = skeletonize_code(full_code)
 
         # Load best chromosome if available
         best_chromosome_str = "None found yet."
-        best_info_path = os.path.join(BASE_DIR, "best_baseline_info.json")
+        best_info_path = os.path.join(PIPELINE_DIR, f"best_baseline_info_{DATASET}.json")
         if os.path.exists(best_info_path):
             try:
                 with open(best_info_path, 'r') as f:
@@ -408,6 +423,8 @@ class MetaEvolver:
 
         # LLM Generation with Full Context
         prompt = BASE_PROMPT_TEMPLATE.format(
+            dataset=DATASET_DASH,
+            history_str=history_str,
             search_space=SEARCH_SPACE_STR,
             best_chromosome=best_chromosome_str,
             full_code=skel_full_code,
@@ -453,6 +470,7 @@ class MetaEvolver:
                 replacements.append((span, indent, ""))
 
         valid_syntax = False
+        bench_stats = {"top3_mean": 0.0, "peak_accuracy": 0.0, "archive_size": self.global_archive_size, "error_trace": ""}
         try:
             test_full = full_code
             for span, indent_col, new_code in replacements:
@@ -486,10 +504,10 @@ class MetaEvolver:
             ast.parse(test_full)
             valid_syntax = True
         except SyntaxError as e:
+            import traceback
+            bench_stats["error_trace"] = traceback.format_exc()
             print(f"[Meta] Syntax Error: {e}")
 
-        # new_score = 0.0
-        bench_stats = {"top3_mean": 0.0, "peak_accuracy": 0.0, "archive_size": self.global_archive_size}
         
         if valid_syntax:
             target_filename = os.path.basename(TARGET_FILE)
@@ -501,7 +519,10 @@ class MetaEvolver:
             # Exercises ALL 6 evolvable components with realistic dummy data.
             try:
                 import importlib
-                import ab.gpt.brute.ga.meta_evolution.modified_GA_cifar10.genetic_algorithm_evolved as ga_mod
+                import sys
+                if PIPELINE_DIR not in sys.path:
+                    sys.path.insert(0, PIPELINE_DIR)
+                ga_mod = importlib.import_module("modified_GA.genetic_algorithm_evolved")
                 importlib.reload(ga_mod)
                 test_ga = ga_mod.GeneticAlgorithm(
                     population_size=4, search_space=SEARCH_SPACE,
@@ -544,6 +565,8 @@ class MetaEvolver:
                         raise ValueError(f"Smoke test: crossover produced '{val}' for gene '{gene}', not in search space {SEARCH_SPACE[gene]}")
                 print("[Meta] Runtime smoke test PASSED (all components validated).")
             except Exception as e:
+                import traceback
+                bench_stats["error_trace"] = traceback.format_exc()
                 print(f"[Meta] Runtime smoke test FAILED: {e}")
                 print("---> Reverting file and skipping benchmark.")
                 shutil.copy(bkp, TARGET_FILE)
@@ -552,6 +575,9 @@ class MetaEvolver:
             if valid_syntax:
                 print("[Meta] Benchmarking...")
                 bench_stats = self.run_benchmark()
+                if bench_stats.get("error_trace", "") or bench_stats["peak_accuracy"] == 0.0:
+                    print("[Meta] Benchmarking crashed or returned 0.0 accuracy. Treating as invalid.")
+                    valid_syntax = False
 
         new_score = bench_stats["peak_accuracy"]
         top3_mean = bench_stats["top3_mean"]
@@ -707,6 +733,7 @@ class MetaEvolver:
         self.attempt_history.append({
             "status": status, 
             "score": new_score, 
+            "reward": reward,
             "code": combined_code, 
             "error_trace": bench_stats.get("error_trace", "") if not valid_syntax or reward <= 0 else ""
         })
@@ -809,7 +836,8 @@ class MetaEvolver:
         return True
 
 if __name__ == "__main__":
-    with open(os.path.join(BASE_DIR, "model_config.json"), "r") as f:
+    pipeline_dir = os.environ.get("PIPELINE_DIR", BASE_DIR)
+    with open(os.path.join(pipeline_dir, "model_config.json"), "r") as f:
         MODEL_PATH = json.load(f).get("base_model_name", "mistralai/Mistral-7B-Instruct-v0.2")
     evolver = MetaEvolver(MODEL_PATH)
 
@@ -857,12 +885,8 @@ if __name__ == "__main__":
     
     # --- Generate visualizations after all iterations ---
     try:
-        from ab.gpt.brute.ga.meta_evolution.visualize_meta_generation import main as generate_plots
+        from ab.gpt.brute.ga.meta_evolution.meta_visualization import main as generate_plots
         print("\n=== Generating Visualizations ===")
-        generate_plots(RUN_TIMESTAMP, "cifar10")
-    except Exception as e:
-        print(f"[WARN] Visualization failed (non-fatal): {e}")
-        print("\n=== Generating Visualizations ===")
-        generate_plots(RUN_TIMESTAMP, "cifar10")
+        generate_plots(RUN_TIMESTAMP, DATASET)
     except Exception as e:
         print(f"[WARN] Visualization failed (non-fatal): {e}")

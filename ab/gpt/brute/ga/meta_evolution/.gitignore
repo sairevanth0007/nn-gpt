@@ -64,3 +64,11 @@ baseline_ga_fractal_arch*/
 visualizations/
 # logs*/
 modified_GA_*/
+
+# ============================
+# Pipeline Directories
+# ============================
+# Ignore all dynamically generated output (logs, stats, architectures, history)
+*_pipeline/*
+# But preserve the manual model configuration file inside each pipeline!
+!*_pipeline/model_config.json

@@ -1,5 +1,5 @@
 """
-visualize_meta_generation.py
+meta_visualization.py
 ---------------------
 Generates and saves plots for:
   1. GA evolution progress  (from stats/ JSON files)
@@ -17,7 +17,7 @@ Output is saved into a timestamped folder:
           score_improvement.png
 
 Usage:
-    python3 visualize_meta_generation.py
+    python3 meta_visualization.py
 """
 
 import os
@@ -40,7 +40,8 @@ import numpy as np
 BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 STATS_DIR      = os.path.join(BASE_DIR, "stats")
 LOGS_DIR       = os.path.join(BASE_DIR, "logs")
-VIZ_ROOT       = os.path.join(BASE_DIR, "visualizations")
+PIPELINE_DIR   = os.environ.get("PIPELINE_DIR", os.path.join(BASE_DIR, "meta_evolution"))
+VIZ_ROOT       = os.path.join(PIPELINE_DIR, "visualizations")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -87,7 +88,10 @@ def _apply_style(ax, title, xlabel, ylabel):
     ax.tick_params(colors="black")
 
 
-def _save(fig, path, saved_files):
+def _save(fig, path, saved_files, suffix=""):
+    if suffix:
+        base, ext = os.path.splitext(path)
+        path = f"{base}_{suffix}{ext}"
     os.makedirs(os.path.dirname(path), exist_ok=True)
     # fig.savefig(path, dpi=150, bbox_inches="tight")
     fig.savefig(path, dpi=150, bbox_inches="tight", facecolor='white', transparent=False)
@@ -198,15 +202,13 @@ def load_stats_records(target_ts=None):
     """
     records = []
     if target_ts:
-        log_files = glob.glob(os.path.join(BASE_DIR, "logs_cifar10", f"ga_evaluations*{target_ts}.jsonl")) + \
-                    glob.glob(os.path.join(BASE_DIR, "logs_cifar100", f"ga_evaluations*{target_ts}.jsonl")) + \
-                    glob.glob(os.path.join(BASE_DIR, "logs_imagenet100", f"ga_evaluations*{target_ts}.jsonl")) + \
-                    glob.glob(os.path.join(LOGS_DIR, f"ga_evaluations*{target_ts}.jsonl")) + \
-                    glob.glob(os.path.join(BASE_DIR, f"ga_evaluations*{target_ts}.jsonl"))
+        log_files = glob.glob(os.path.join(BASE_DIR, "*_pipeline", "logs_*", "*", "*", f"ga_evaluations*{target_ts}.jsonl")) + \
+                    glob.glob(os.path.join(BASE_DIR, "logs_*", "*", "*", f"ga_evaluations*{target_ts}.jsonl")) + \
+                    glob.glob(os.path.join(LOGS_DIR, f"ga_evaluations*{target_ts}.jsonl"))
         log_files = [f for f in log_files if os.path.exists(f)]
     else:
-        log_files = glob.glob(os.path.join(BASE_DIR, "logs_cifar10", "ga_evaluations*.jsonl")) + \
-                    glob.glob(os.path.join(BASE_DIR, "logs_cifar100", "ga_evaluations*.jsonl")) + \
+        log_files = glob.glob(os.path.join(BASE_DIR, "*_pipeline", "logs_*", "*", "*", "ga_evaluations*.jsonl")) + \
+                    glob.glob(os.path.join(BASE_DIR, "logs_*", "*", "*", "ga_evaluations*.jsonl")) + \
                     glob.glob(os.path.join(LOGS_DIR, "ga_evaluations*.jsonl"))
         if not log_files:
             log_files = glob.glob(os.path.join(BASE_DIR, "ga_evaluations*.jsonl"))
@@ -260,15 +262,13 @@ def load_llm_logs(target_ts=None):
     Expected fields: method, score, reward, valid_syntax, timestamp.
     """
     if target_ts:
-        log_files = glob.glob(os.path.join(BASE_DIR, "logs_cifar10", f"LLM-evolution-logs*{target_ts}.jsonl")) + \
-                    glob.glob(os.path.join(BASE_DIR, "logs_cifar100", f"LLM-evolution-logs*{target_ts}.jsonl")) + \
-                    glob.glob(os.path.join(BASE_DIR, "logs_imagenet100", f"LLM-evolution-logs*{target_ts}.jsonl")) + \
-                    glob.glob(os.path.join(LOGS_DIR, f"LLM-evolution-logs*{target_ts}.jsonl")) + \
-                    glob.glob(os.path.join(BASE_DIR, f"LLM-evolution-logs*{target_ts}.jsonl"))
+        log_files = glob.glob(os.path.join(BASE_DIR, "*_pipeline", "logs_*", "*", "*", f"LLM-evolution-logs*{target_ts}.jsonl")) + \
+                    glob.glob(os.path.join(BASE_DIR, "logs_*", "*", "*", f"LLM-evolution-logs*{target_ts}.jsonl")) + \
+                    glob.glob(os.path.join(LOGS_DIR, f"LLM-evolution-logs*{target_ts}.jsonl"))
         log_files = [f for f in log_files if os.path.exists(f)]
     else:
-        log_files = glob.glob(os.path.join(BASE_DIR, "logs_cifar10", "LLM-evolution-logs*.jsonl")) + \
-                    glob.glob(os.path.join(BASE_DIR, "logs_cifar100", "LLM-evolution-logs*.jsonl")) + \
+        log_files = glob.glob(os.path.join(BASE_DIR, "*_pipeline", "logs_*", "*", "*", "LLM-evolution-logs*.jsonl")) + \
+                    glob.glob(os.path.join(BASE_DIR, "logs_*", "*", "*", "LLM-evolution-logs*.jsonl")) + \
                     glob.glob(os.path.join(LOGS_DIR, "LLM-evolution-logs*.jsonl"))
         if not log_files:
             log_files = glob.glob(os.path.join(BASE_DIR, "LLM-evolution-logs*.jsonl"))
@@ -313,7 +313,7 @@ def group_meta_generations(records):
     return [g for g in generations if g["evals"]]
 
 
-def plot_generation_accuracy(records, llm_entries, out_dir, saved_files):
+def plot_generation_accuracy(records, llm_entries, out_dir, saved_files, suffix=""):
     generations = group_meta_generations(records)
 
     if not generations:
@@ -377,10 +377,10 @@ def plot_generation_accuracy(records, llm_entries, out_dir, saved_files):
                         
         plt.tight_layout()
         path = os.path.join(out_dir, "generation_accuracy.png")
-        _save(fig, path, saved_files)
+        _save(fig, path, saved_files, suffix)
 
 
-def plot_population_diversity(records, llm_entries, out_dir, saved_files):
+def plot_population_diversity(records, llm_entries, out_dir, saved_files, suffix=""):
     generations = group_meta_generations(records)
 
     if not generations:
@@ -415,10 +415,10 @@ def plot_population_diversity(records, llm_entries, out_dir, saved_files):
             
         _apply_style(ax, "Population Diversity per Generation",
                      "Number of Generation", "Accuracy (%)")
-        _save(fig, os.path.join(out_dir, "population_diversity.png"), saved_files)
+        _save(fig, os.path.join(out_dir, "population_diversity.png"), saved_files, suffix)
 
 
-def plot_best_vs_avg_accuracy(records, llm_entries, out_dir, saved_files):
+def plot_best_vs_avg_accuracy(records, llm_entries, out_dir, saved_files, suffix=""):
     generations = group_meta_generations(records)
 
     if not generations:
@@ -468,10 +468,10 @@ def plot_best_vs_avg_accuracy(records, llm_entries, out_dir, saved_files):
         _apply_style(ax, "Best vs Average Accuracy per Generation",
                      "Number of Generation", "Accuracy (%)")
         ax.legend()
-        _save(fig, os.path.join(out_dir, "best_vs_avg_accuracy.png"), saved_files)
+        _save(fig, os.path.join(out_dir, "best_vs_avg_accuracy.png"), saved_files, suffix)
 
 
-def plot_time_per_generation(records, llm_entries, out_dir, saved_files):
+def plot_time_per_generation(records, llm_entries, out_dir, saved_files, suffix=""):
     generations = group_meta_generations(records)
 
     if not generations:
@@ -514,14 +514,14 @@ def plot_time_per_generation(records, llm_entries, out_dir, saved_files):
             
         plt.tight_layout()
         path = os.path.join(out_dir, "time_per_generation.png")
-        _save(fig, path, saved_files)
+        _save(fig, path, saved_files, suffix)
 
 
 # ---------------------------------------------------------------------------
 # LLM fine-tuning plots
 # ---------------------------------------------------------------------------
 
-def plot_reward_over_iterations(entries, out_dir, saved_files):
+def plot_reward_over_iterations(entries, out_dir, saved_files, suffix=""):
     if not entries:
         _warn("No LLM log entries — skipping reward_over_iterations.png")
         return
@@ -540,10 +540,10 @@ def plot_reward_over_iterations(entries, out_dir, saved_files):
         pos_patch = mpatches.Patch(color=ACCENT3, label="Positive reward")
         neg_patch = mpatches.Patch(color=ACCENT2, label="Penalty")
         ax.legend(handles=[pos_patch, neg_patch])
-        _save(fig, os.path.join(out_dir, "reward_over_iterations.png"), saved_files)
+        _save(fig, os.path.join(out_dir, "reward_over_iterations.png"), saved_files, suffix)
 
 
-def plot_syntax_success_rate(entries, out_dir, saved_files):
+def plot_syntax_success_rate(entries, out_dir, saved_files, suffix=""):
     if not entries:
         _warn("No LLM log entries — skipping syntax_success_rate.png")
         return
@@ -568,10 +568,10 @@ def plot_syntax_success_rate(entries, out_dir, saved_files):
         _apply_style(ax, "Syntax Success Rate Over Iterations",
                      "Iteration", "Success Rate (%)")
         ax.legend()
-        _save(fig, os.path.join(out_dir, "syntax_success_rate.png"), saved_files)
+        _save(fig, os.path.join(out_dir, "syntax_success_rate.png"), saved_files, suffix)
 
 
-def plot_score_improvement(entries, out_dir, saved_files):
+def plot_score_improvement(entries, out_dir, saved_files, suffix=""):
     if not entries:
         _warn("No LLM log entries — skipping score_improvement.png")
         return
@@ -603,10 +603,10 @@ def plot_score_improvement(entries, out_dir, saved_files):
         _apply_style(ax, "Score Improvement per Iteration (LLM Fine-Tuning)",
                      "Iteration", "Score")
         ax.legend()
-        _save(fig, os.path.join(out_dir, "score_improvement.png"), saved_files)
+        _save(fig, os.path.join(out_dir, "score_improvement.png"), saved_files, suffix)
 
 
-def plot_peak_accuracy_over_iterations(entries, out_dir, saved_files):
+def plot_peak_accuracy_over_iterations(entries, out_dir, saved_files, suffix=""):
     if not entries:
         _warn("No LLM log entries — skipping meta_peak_accuracy.png")
         return
@@ -618,10 +618,10 @@ def plot_peak_accuracy_over_iterations(entries, out_dir, saved_files):
         ax.fill_between(xs, accs, alpha=0.15, color=ACCENT1)
         _apply_style(ax, "Peak GA Accuracy Over Meta-Iterations", "Meta-Iteration", "Accuracy (%)")
         ax.legend()
-        _save(fig, os.path.join(out_dir, "meta_peak_accuracy.png"), saved_files)
+        _save(fig, os.path.join(out_dir, "meta_peak_accuracy.png"), saved_files, suffix)
 
 
-def plot_modification_success_rate(entries, out_dir, saved_files):
+def plot_modification_success_rate(entries, out_dir, saved_files, suffix=""):
     if not entries:
         _warn("No LLM log entries — skipping llm_success_rates.png")
         return
@@ -640,7 +640,7 @@ def plot_modification_success_rate(entries, out_dir, saved_files):
         ax.set_ylim(-5, 105)
         _apply_style(ax, "LLM Modification Success Rates", "Meta-Iteration", "Success Rate (%)")
         ax.legend()
-        _save(fig, os.path.join(out_dir, "llm_success_rates.png"), saved_files)
+        _save(fig, os.path.join(out_dir, "llm_success_rates.png"), saved_files, suffix)
 
 
 # ---------------------------------------------------------------------------
@@ -659,9 +659,11 @@ def main(target_ts=None, target_dataset=None):
         dataset_name = target_dataset
         
     if model_name:
-        run_dir = os.path.join(VIZ_ROOT, f"visualization_meta_{dataset_name}_{model_name}_{timestamp}")
+        suffix = f"{dataset_name}_{model_name}_{timestamp}"
+        run_dir = os.path.join(VIZ_ROOT, f"meta_visualization_{suffix}")
     else:
-        run_dir = os.path.join(VIZ_ROOT, f"visualization_meta_{dataset_name}_{timestamp}")
+        suffix = f"{dataset_name}_{timestamp}"
+        run_dir = os.path.join(VIZ_ROOT, f"meta_visualization_{suffix}")
     ga_dir     = os.path.join(run_dir, "ga_evolution")
     ft_dir     = os.path.join(run_dir, "fine_tuning")
 
@@ -669,7 +671,7 @@ def main(target_ts=None, target_dataset=None):
     os.makedirs(ft_dir, exist_ok=True)
 
     print(f"\n{'='*60}")
-    print(f"  visualize_meta_generation.py — run: {timestamp}")
+    print(f"  meta_visualization.py — run: {timestamp}")
     print(f"  Output root: {os.path.relpath(run_dir, BASE_DIR)}")
     print(f"{'='*60}\n")
 
@@ -686,16 +688,16 @@ def main(target_ts=None, target_dataset=None):
     print(f"      Found {len(records)} evaluated model(s).\n")
 
     print("  Generating GA evolution plots …")
-    plot_generation_accuracy(records, entries, ga_dir, saved_files)
-    plot_time_per_generation(records, entries, ga_dir, saved_files)
-    plot_population_diversity(records, entries, ga_dir, saved_files)
-    plot_best_vs_avg_accuracy(records, entries, ga_dir, saved_files)
+    plot_generation_accuracy(records, entries, ga_dir, saved_files, suffix)
+    plot_time_per_generation(records, entries, ga_dir, saved_files, suffix)
+    plot_population_diversity(records, entries, ga_dir, saved_files, suffix)
+    plot_best_vs_avg_accuracy(records, entries, ga_dir, saved_files, suffix)
 
     print("  Generating fine-tuning plots …")
-    plot_reward_over_iterations(entries, ft_dir, saved_files)
-    plot_score_improvement(entries,     ft_dir, saved_files)
-    plot_peak_accuracy_over_iterations(entries, ft_dir, saved_files)
-    plot_modification_success_rate(entries, ft_dir, saved_files)
+    plot_reward_over_iterations(entries, ft_dir, saved_files, suffix)
+    plot_score_improvement(entries,     ft_dir, saved_files, suffix)
+    plot_peak_accuracy_over_iterations(entries, ft_dir, saved_files, suffix)
+    plot_modification_success_rate(entries, ft_dir, saved_files, suffix)
 
     # ── Summary ─────────────────────────────────────────────────────────────
     print(f"\n{'='*60}")

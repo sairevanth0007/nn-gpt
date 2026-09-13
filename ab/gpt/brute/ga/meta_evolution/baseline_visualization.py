@@ -10,6 +10,8 @@ from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
+PIPELINE_DIR = os.environ.get("PIPELINE_DIR", os.path.join(BASE_DIR, "cifar10_pipeline"))
+VIZ_ROOT = os.path.join(PIPELINE_DIR, "visualizations")
 
 # if len(sys.argv) > 1:
 #     LOG_FILE = sys.argv[1]
@@ -45,24 +47,85 @@ def split_into_generations(entries, gen1_size=20, rest_size=15):
 
 # def main():
 #     print(f"Loading: {LOG_FILE}")
+# def main(dataset=None, log_file_override=None):
+#     if dataset:
+#         target_logs_dir = os.path.join(BASE_DIR, f"logs_{dataset}")
+#     else:
+#         target_logs_dir = os.path.join(BASE_DIR, "logs_cifar10")
+# 
+#     if log_file_override:
+#         LOG_FILE = log_file_override
+#     elif len(sys.argv) > 1:
+#         LOG_FILE = sys.argv[1]
+#     else:
+#         if dataset:
+#             log_files = glob.glob(os.path.join(target_logs_dir, f"baseline_evaluations_{dataset}_*.jsonl"))
+#         else:
+#             log_files = glob.glob(os.path.join(target_logs_dir, "baseline_evaluations_cifar10_*.jsonl")) + \
+#                         glob.glob(os.path.join(target_logs_dir, "baseline_evaluations_*.jsonl"))
+#         if not log_files:
+#             raise FileNotFoundError(f"No baseline_evaluations*.jsonl found in {target_logs_dir}")
+#         LOG_FILE = max(log_files, key=os.path.getmtime)
 def main(dataset=None, log_file_override=None):
-    if dataset:
-        target_logs_dir = os.path.join(BASE_DIR, f"logs_{dataset}")
-    else:
-        target_logs_dir = os.path.join(BASE_DIR, "logs_cifar10")
+    global VIZ_ROOT
+    # if not dataset:
+    #     dataset = os.environ.get("DATASET", "cifar10")
+    # 
+    # target_pipeline_dir = os.environ.get("PIPELINE_DIR", os.path.join(BASE_DIR, f"{dataset}_pipeline"))
+    # VIZ_ROOT = os.path.join(target_pipeline_dir, "visualizations")
+    # 
+    # if log_file_override and os.path.exists(log_file_override):
+    #     LOG_FILE = log_file_override
+    # elif os.environ.get("GA_EVAL_LOG") and os.path.exists(os.environ.get("GA_EVAL_LOG")):
+    #     LOG_FILE = os.environ.get("GA_EVAL_LOG")
+    # elif len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
+    #     LOG_FILE = sys.argv[1]
 
-    if log_file_override:
-        LOG_FILE = log_file_override
-    elif len(sys.argv) > 1:
-        LOG_FILE = sys.argv[1]
+    # Resolve candidate log file first
+    candidate_log = None
+    if log_file_override and os.path.exists(log_file_override):
+        candidate_log = log_file_override
+    elif os.environ.get("GA_EVAL_LOG") and os.path.exists(os.environ.get("GA_EVAL_LOG")):
+        candidate_log = os.environ.get("GA_EVAL_LOG")
+    elif len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
+        candidate_log = sys.argv[1]
+
+    # Infer dataset from candidate log if not provided
+    if not dataset and candidate_log:
+        base_log = os.path.basename(candidate_log)
+        if "imagenet100" in base_log:
+            dataset = "imagenet100"
+        elif "cifar100" in base_log:
+            dataset = "cifar100"
+        elif "cifar10" in base_log:
+            dataset = "cifar10"
+
+    if not dataset:
+        dataset = os.environ.get("DATASET", "cifar10")
+
+    target_pipeline_dir = os.environ.get("PIPELINE_DIR", os.path.join(BASE_DIR, f"{dataset}_pipeline"))
+    VIZ_ROOT = os.path.join(target_pipeline_dir, "visualizations")
+
+    if candidate_log:
+        LOG_FILE = candidate_log
     else:
-        if dataset:
-            log_files = glob.glob(os.path.join(target_logs_dir, f"baseline_evaluations_{dataset}_*.jsonl"))
-        else:
-            log_files = glob.glob(os.path.join(target_logs_dir, "baseline_evaluations_cifar10_*.jsonl")) + \
-                        glob.glob(os.path.join(target_logs_dir, "baseline_evaluations_*.jsonl"))
+        search_dirs = [
+            os.path.join(target_pipeline_dir, f"logs_{dataset}", "Baseline"),
+            os.path.join(target_pipeline_dir, f"logs_{dataset}"),
+            os.path.join(BASE_DIR, f"logs_{dataset}"),
+            os.path.join(BASE_DIR, "logs_cifar10"),
+            LOGS_DIR
+        ]
+        log_files = []
+        for sdir in search_dirs:
+            if os.path.exists(sdir):
+                log_files.extend(glob.glob(os.path.join(sdir, "**", f"baseline_evaluations_{dataset}_*.jsonl"), recursive=True))
+                log_files.extend(glob.glob(os.path.join(sdir, f"baseline_evaluations_{dataset}_*.jsonl")))
+                log_files.extend(glob.glob(os.path.join(sdir, "**", "baseline_evaluations_*.jsonl"), recursive=True))
+                log_files.extend(glob.glob(os.path.join(sdir, "baseline_evaluations_*.jsonl")))
+        log_files = list(set([os.path.abspath(f) for f in log_files if os.path.isfile(f)]))
         if not log_files:
-            raise FileNotFoundError(f"No baseline_evaluations*.jsonl found in {target_logs_dir}")
+            raise FileNotFoundError(f"No baseline_evaluations*.jsonl found in search dirs: {search_dirs}")
         LOG_FILE = max(log_files, key=os.path.getmtime)
 
     print(f"Loading: {LOG_FILE}")
@@ -165,11 +228,12 @@ def main(dataset=None, log_file_override=None):
             # We assume model name contains '-' or is the first part before date
             timestamp = "_".join(parts[-2:])
             model_name = "_".join(parts[:-2])
-            plot_dir = os.path.join(BASE_DIR, "visualizations", f"baseline_{dataset}_{model_name}_{timestamp}")
+            suffix = f"{dataset}_{model_name}_{timestamp}"
         else:
             timestamp = remainder
-            prefix = f"baseline_{dataset}_" if dataset else "baseline_"
-            plot_dir = os.path.join(BASE_DIR, "visualizations", f"{prefix}{timestamp}")
+            suffix = f"{dataset}_{timestamp}" if dataset else f"{timestamp}"
+        
+        plot_dir = os.path.join(VIZ_ROOT, f"baseline_visualization_{suffix}")
             
     elif "ga_evaluations_" in log_basename:
         if "imagenet100" in log_basename: dataset = "imagenet100"
@@ -184,16 +248,18 @@ def main(dataset=None, log_file_override=None):
         if len(parts) > 2 and "-" in remainder:
             timestamp = "_".join(parts[-2:])
             model_name = "_".join(parts[:-2])
-            plot_dir = os.path.join(BASE_DIR, "visualizations", f"run_{dataset}_{model_name}_{timestamp}")
+            suffix = f"{dataset}_{model_name}_{timestamp}"
         else:
             timestamp = remainder
-            prefix = f"run_{dataset}_" if dataset else "run_"
-            plot_dir = os.path.join(BASE_DIR, "visualizations", f"{prefix}{timestamp}")
+            suffix = f"{dataset}_{timestamp}" if dataset else f"{timestamp}"
+            
+        plot_dir = os.path.join(VIZ_ROOT, f"baseline_visualization_{suffix}")
     else:
         timestamp = log_basename.replace(".jsonl", "")
-        plot_dir = os.path.join(BASE_DIR, "visualizations", f"run_{timestamp}")
+        suffix = timestamp
+        plot_dir = os.path.join(VIZ_ROOT, f"baseline_visualization_{suffix}")
     os.makedirs(plot_dir, exist_ok=True)
-    plot_path = os.path.join(plot_dir, "baseline_accuracy_per_generation.png")
+    plot_path = os.path.join(plot_dir, f"baseline_accuracy_per_generation_{suffix}.png")
     # plt.savefig(plot_path, dpi=150)
     plt.savefig(plot_path, dpi=150, facecolor='white', transparent=False)
     print(f"\nAccuracy plot saved to: {plot_path}")
@@ -215,7 +281,7 @@ def main(dataset=None, log_file_override=None):
     ax2.set_xlim(1, len(generations))
     
     plt.tight_layout()
-    plot_time_path = os.path.join(plot_dir, "baseline_time_per_generation.png")
+    plot_time_path = os.path.join(plot_dir, f"baseline_time_per_generation_{suffix}.png")
     # fig2.savefig(plot_time_path, dpi=150)
     fig2.savefig(plot_time_path, dpi=150, facecolor='white', transparent=False)
     print(f"Time plot saved to: {plot_time_path}")
@@ -259,10 +325,9 @@ def main(dataset=None, log_file_override=None):
     ax3_twin.tick_params(axis='y', labelcolor="#10b981")
 
     plt.tight_layout()
-    plot_div_path = os.path.join(plot_dir, "baseline_diversity_per_generation.png")
+    plot_div_path = os.path.join(plot_dir, f"baseline_population_diversity_{suffix}.png")
     fig3.savefig(plot_div_path, dpi=150, facecolor='white', transparent=False)
     print(f"Diversity plot saved to: {plot_div_path}")
 
 if __name__ == "__main__":
     main()
-
