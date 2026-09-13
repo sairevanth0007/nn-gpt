@@ -29,7 +29,7 @@ from ab.nn.util.Util import release_memory, create_file
 from peft import PeftModel
 from tqdm import tqdm
 
-import ab.gpt.NNEval as NNEval
+import ab.gpt.act.eval.Eval as NNEval
 from ab.gpt.util.Chatbot import ChatBot
 from ab.gpt.util.Const import *
 from ab.gpt.util.Const import nngpt_dir
@@ -50,7 +50,7 @@ from ab.gpt.util.Const import nngpt_upload, DEFAULT_DATASET, DEFAULT_NN_PREFIXES
 import ab.gpt.util.SFTUtil as SFTUtil
 from ab.gpt.brute.trans.TransformEval import run_eval
 from ab.gpt.util.prompt.TransformGenPrompt import TransformGenPrompt, load_data_from_folders
-from ab.gpt.agents.state import AgentState
+from ab.gpt.act.agents.state import AgentState
 import ab.gpt.util.training_runtime as TrainingRuntime
 
 ds_conf = conf_dir / 'DeepSpeed.json'
@@ -202,6 +202,12 @@ def nn_gen(
                     accuracy=para_dict.get("accuracy", row.get("accuracy", "")),
                     target_pattern=target_pattern,
                 )
+            if key_config.get("shrink_nn_code") and "nn_code" in para_dict and isinstance(para_dict["nn_code"], str):
+                # Show the LLM only the LLR-relevant slice of the baseline
+                # (train_setup/learn + headers). The delta is still applied
+                # to the FULL baseline from origdf['nn_code'] below.
+                from ab.gpt.util.DeltaUtil import shrink_nn_code_for_prompt
+                para_dict["nn_code"] = shrink_nn_code_for_prompt(para_dict["nn_code"])
             if nn_code_max_chars and "nn_code" in para_dict and isinstance(para_dict["nn_code"], str):
                 para_dict["nn_code"] = para_dict["nn_code"][:nn_code_max_chars]
 
@@ -711,7 +717,7 @@ def _evaluate_epoch(
                 print(f'[WARN] postprocess_nn skipped: {exc}', flush=True)
 
         if classification_mode:
-            from ab.gpt.ClassificationEval import evaluate_epoch as cls_eval
+            from ab.gpt.act.classification.Eval import evaluate_epoch as cls_eval
 
             cls_result = cls_eval(models_dir)
             results[f"epoch_{epoch + 1}_accuracy"] = cls_result["accuracy"]
@@ -731,7 +737,7 @@ def _evaluate_epoch(
                 cmd = [
                     sys.executable,
                     "-m",
-                    "ab.gpt.NNEval",
+                    "ab.gpt.act.eval.Eval",
                     "--nn_train_epochs",
                     str(nn_train_epochs),
                     "--only_epoch",
@@ -1199,7 +1205,7 @@ def tune(
     shutil.rmtree(epoch_root_path, ignore_errors=True)
 
     if use_agents:
-        from ab.gpt.agents.run_agent import run_agent_controller
+        from ab.gpt.act.agents.run_agent import run_agent_controller
         return run_agent_controller(state)
 
     for epoch in range(llm_tune_epochs):
