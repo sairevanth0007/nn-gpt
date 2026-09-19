@@ -29,7 +29,7 @@
               "-c"
             ],
             "args": [
-              "export PYTHONPATH=/a/mm/patches:/a/mm\nexport NNGPT_DB_LOCAL=1\nexport NNGPT_OUT_ROOT=/a/mm/out/smoke_llmatic_pr\npython3 -u /a/mm/run.py ab.gpt.TuneNNGen --llm_conf ds_coder_7b_instruct.json --run_iterative_pipeline --cycles 2 --models_per_cycle 10 --nn_prefixes ga- --llmatic --llmatic_crossover_every 3 --num_train_epochs 1\n"
+              "export PYTHONPATH=/a/mm/patches:/a/mm\nexport NNGPT_DB_LOCAL=1\nexport NNGPT_OUT_ROOT=/a/mm/out/smoke_llmatic_pr\nexport NNGPT_DIR_OVERRIDE=/a/mm/out/smoke_llmatic_pr/nngpt\npython3 -u /a/mm/run.py ab.gpt.act.tune.Tune --llm_conf ds_coder_7b_instruct.json --run_iterative_pipeline --cycles 2 --models_per_cycle 10 --nn_prefixes ga- --llmatic --llmatic_crossover_every 3 --num_train_epochs 1\n"
             ],
             "securityContext": {
               "allowPrivilegeEscalation": false,
