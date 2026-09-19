@@ -5,10 +5,8 @@ cycle, plus periodic *crossover* combining two parents from different cells) so
 ``ab.gpt.util.Tune.nn_gen`` can call it as a single hook instead of the default
 random LEMUR sampling.
 
-Design: unlike the earlier ``patches/llmatic_patch.py`` monkeypatch (which had to
-swap ``ab.nn.api.data`` and rewrite the prompt-config in place because it could
-not touch ``Tune.py``), this helper simply returns the seed-row DataFrame that
-``nn_gen`` already consumes. For crossover, each row carries a
+Design: this helper simply returns the seed-row DataFrame that ``nn_gen`` already
+consumes, leaving the rest of the pipeline untouched. For crossover, each row carries a
 ``__llmatic_prompt__`` column holding the fully-rendered two-parent prompt, which
 ``nn_gen``'s prompt-assembly step uses verbatim.
 
