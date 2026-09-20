@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Optional
 
 from ab.nn.util.Util import release_memory
-from ab.gpt.util.LoRA import find_all_linear_names, print_trainable_parameters
-from ab.gpt.util.KTO import kto_lora_config  # shared LoRA-config builder (drift-control defaults)
+from ab.gpt.util.llm.LoRA import find_all_linear_names, print_trainable_parameters
+from ab.gpt.util.llm.KTO import kto_lora_config  # shared LoRA-config builder (drift-control defaults)
 import ab.gpt.util.training_runtime as TrainingRuntime
 from datasets import Dataset
 from peft import get_peft_model, prepare_model_for_kbit_training

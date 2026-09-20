@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from ab.gpt.act.kto.kto_generator import build_prompt_messages
 from ab.gpt.act.iterative.novelty_checker import NoveltyChecker
 from ab.gpt.util.Const import conf_llm_dir, nngpt_dir
-from ab.gpt.util.CycleResults import save_cycle_results
+from ab.gpt.util.data.CycleResults import save_cycle_results
 
 logger = logging.getLogger("kto_selfcontained")
 

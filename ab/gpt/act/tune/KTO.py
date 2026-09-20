@@ -40,7 +40,7 @@ from peft import PeftModel
 from transformers import TrainingArguments
 
 from ab.gpt.util.Const import conf_llm_dir, nngpt_dir
-from ab.gpt.util.LLMUtil import quantization_config_4bit
+from ab.gpt.util.llm.LLMUtil import quantization_config_4bit
 from ab.nn.util.Const import out_dir
 
 
@@ -186,7 +186,7 @@ def _load_base_model_and_tokenizer(
     LoRA adapter to provide a warm start.  Mirrors the pattern in
     ab/gpt/util/Tune.py:tune().
     """
-    from ab.gpt.util.LLM import LLM
+    from ab.gpt.util.llm.LLM import LLM
 
     base_model_name = llm_conf_data["base_model_name"]
     context_length = llm_conf_data.get("context_length")
@@ -341,7 +341,7 @@ def run_kto(
     # ── 2. LoRA config ──────────────────────────────────────────────────────
     if tune_layers is None:
         tune_layers = range(START_LAYER, END_LAYER)
-    from ab.gpt.util.KTO import kto_lora_config
+    from ab.gpt.util.llm.KTO import kto_lora_config
     peft_config = kto_lora_config(
         target_modules=target_modules,
         r=r,
@@ -365,7 +365,7 @@ def run_kto(
     # ── 5. KTO training ─────────────────────────────────────────────────────
     # Late import so the module can also be used in pipeline-dispatch mode
     # without paying the KTO trainer import cost up front.
-    from ab.gpt.util.KTO import KTO
+    from ab.gpt.util.llm.KTO import KTO
 
     kto = KTO(
         model=model,

@@ -225,7 +225,7 @@ def run_dpo(
     # ── 2. LoRA config (shared drift-control builder with KTO) ──────────────
     if tune_layers is None:
         tune_layers = range(START_LAYER, END_LAYER)
-    from ab.gpt.util.KTO import kto_lora_config
+    from ab.gpt.util.llm.KTO import kto_lora_config
     peft_config = kto_lora_config(
         target_modules=target_modules,
         r=r,
