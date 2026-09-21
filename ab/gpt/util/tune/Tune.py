@@ -180,7 +180,7 @@ def nn_gen(
             # so seed selection can never break generation.
             llmatic_seeds = None
             if key_config.get("llmatic") and not use_backbone and not use_delta:
-                from ab.gpt.llmatic.seeds import build_archive, select_seed_rows, cycle_from_path
+                from ab.gpt.util.method.llmatic.seeds import build_archive, select_seed_rows, cycle_from_path
                 _archive = build_archive(key_config)
                 if _archive is not None:
                     llmatic_seeds = select_seed_rows(
@@ -1138,7 +1138,7 @@ def tune(
     assert isinstance(prompt_dict, dict)
 
     # Enable LLMatic MAP-Elites seed selection by injecting the config into each
-    # generation key. nn_gen reads key_config["llmatic"]; see ab/gpt/llmatic/.
+    # generation key. nn_gen reads key_config["llmatic"]; see ab/gpt/util/method/llmatic/.
     if llmatic:
         for _key in conf_keys:
             if isinstance(prompt_dict.get(_key), dict):

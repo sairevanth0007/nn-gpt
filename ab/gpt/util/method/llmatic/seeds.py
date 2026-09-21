@@ -63,7 +63,7 @@ def build_archive(key_config: dict):
     Returns the archive, or ``None`` if it could not be built / is empty.
     """
     try:
-        from ab.gpt.llmatic.archive import MAPElitesArchive
+        from ab.gpt.util.method.llmatic.archive import MAPElitesArchive
         from ab.gpt.util.Const import DEFAULT_DATASET, DEFAULT_NN_PREFIXES
 
         gen_dataset = key_config.get("dataset", DEFAULT_DATASET)
@@ -91,7 +91,7 @@ def select_seed_rows(archive, corpus_df, key_config, cycle, test_nn, out_path=No
     """
     try:
         import pandas as pd
-        from ab.gpt.llmatic.prompts import build_crossover_prompt
+        from ab.gpt.util.method.llmatic.prompts import build_crossover_prompt
 
         cfg = key_config.get("llmatic") or {}
         stats = archive.get_stats()
